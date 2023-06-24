@@ -2,13 +2,6 @@ name: build java lib
 
 on:
   workflow_call:
-    inputs:
-      docker_context:
-        required: true
-        type: string
-      docker_image:
-        required: true
-        type: string
     secrets:
       MAVEN_USER:
         required: true
