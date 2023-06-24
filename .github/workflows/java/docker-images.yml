@@ -73,4 +73,4 @@ jobs:
           context: ${{ inputs.docker_context }}
           push: true
           platforms: linux/amd64
-          tags: ${{ env.REGISTRY }}/${{ inputs.docker_image }}:${{ env.BRANCH }}
+          tags: ${{ env.REGISTRY }}/team-gs/${{ inputs.docker_image }}:${{ env.BRANCH }}
