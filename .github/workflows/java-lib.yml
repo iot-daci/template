@@ -1,4 +1,4 @@
-name: Docker Image CI
+name: build java lib
 
 on:
   workflow_call:
@@ -14,11 +14,6 @@ on:
         required: true
       MAVEN_PASSWORD:
         required: true
-      DOCKER_USER:
-        required: true
-      DOCKER_PASSWORD:
-        required: true
-
 
 jobs:
   build:
@@ -30,26 +25,12 @@ jobs:
     env:
       MAVEN_USER: ${{secrets.MAVEN_USER}}
       MAVEN_PASSWORD: ${{secrets.MAVEN_PASSWORD}}
-      REGISTRY: registry.cn-hangzhou.aliyuncs.com
     steps:
       - name: Checkout source
         uses: actions/checkout@v3
 
       - name: Set env.BRANCH
         run: echo "BRANCH=$(echo $GITHUB_REF | cut -d'/' -f 3)" >> $GITHUB_ENV
-
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v2
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v2
-
-      - name: Login to AliYun Registry
-        uses: docker/login-action@v2
-        with:
-          registry: ${{ env.REGISTRY }}
-          username: ${{ secrets.DOCKER_USER }}
-          password: ${{ secrets.DOCKER_PASSWORD }}
 
       - name: Use cache
         uses: actions/cache@v3
@@ -66,11 +47,3 @@ jobs:
 
       - name: Build with maven
         run: mvn -Dmaven.test.skip=true -B package
-
-      - name: Build and push docker
-        uses: docker/build-push-action@v3
-        with:
-          context: ${{ inputs.docker_context }}
-          push: true
-          platforms: linux/amd64
-          tags: ${{ env.REGISTRY }}/team-gs/${{ inputs.docker_image }}:${{ env.BRANCH }}
