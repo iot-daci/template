@@ -6,7 +6,7 @@ on:
       lifecycle:
         type: string
         required: false
-        default: "package"
+        default: "deploy"
 
 jobs:
   build:
