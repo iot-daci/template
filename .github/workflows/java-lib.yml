@@ -1,5 +1,12 @@
 name: build java lib
 
+on:
+  workflow_call:
+    inputs:
+      lifecycle:
+        type: string
+        required: false
+        default: "deploy"
 
 jobs:
   build:
@@ -34,4 +41,4 @@ jobs:
 
       # 编译部署maven
       - name: Build maven and deploy
-        run: mvn -Dmaven.test.skip=true -B deploy
+        run: mvn -Dmaven.test.skip=true -B ${{ inputs.lifecycle }}
