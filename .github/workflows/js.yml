@@ -11,10 +11,6 @@ on:
         type: string
         required: true
     secrets:
-      MAVEN_USER:
-        required: true
-      MAVEN_PASSWORD:
-        required: true
       DOCKER_USER:
         required: true
       DOCKER_PASSWORD:
@@ -28,8 +24,6 @@ jobs:
       volumes:
         - /root/.m2:/root/.m2
     env:
-      MAVEN_USER: ${{secrets.MAVEN_USER}}
-      MAVEN_PASSWORD: ${{secrets.MAVEN_PASSWORD}}
       REGISTRY: registry.cn-hangzhou.aliyuncs.com
     steps:
       # 拉取代码

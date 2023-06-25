@@ -1,12 +1,5 @@
 name: build java lib
 
-on:
-  workflow_call:
-    secrets:
-      MAVEN_USER:
-        required: true
-      MAVEN_PASSWORD:
-        required: true
 
 jobs:
   build:
@@ -15,9 +8,6 @@ jobs:
       image: lzk90s/java-develop-env:maven3-openjdk11
       volumes:
         - /root/.m2:/root/.m2
-    env:
-      MAVEN_USER: ${{secrets.MAVEN_USER}}
-      MAVEN_PASSWORD: ${{secrets.MAVEN_PASSWORD}}
     steps:
       # 拉取代码
       - name: Checkout source
