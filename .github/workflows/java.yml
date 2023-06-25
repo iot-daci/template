@@ -79,4 +79,6 @@ jobs:
           context: ${{ inputs.docker_context }}
           push: true
           platforms: linux/amd64
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
           tags: ${{ env.REGISTRY }}/team-gs/${{ inputs.docker_image }}:${{ env.BRANCH }}
