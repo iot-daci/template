@@ -19,12 +19,15 @@ jobs:
       MAVEN_USER: ${{secrets.MAVEN_USER}}
       MAVEN_PASSWORD: ${{secrets.MAVEN_PASSWORD}}
     steps:
+      # 拉取代码
       - name: Checkout source
         uses: actions/checkout@v3
 
+      # 设置branch变量
       - name: Set env.BRANCH
         run: echo "BRANCH=$(echo $GITHUB_REF | cut -d'/' -f 3)" >> $GITHUB_ENV
 
+      # 挂载缓存
       - name: Use cache
         uses: actions/cache@v3
         env:
@@ -35,8 +38,10 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-maven-
 
+      # 初始化构建env
       - name: Init builder env
         run: init_env.sh
 
-      - name: Build with maven
+      # 编译部署maven
+      - name: Build maven and deploy
         run: mvn -Dmaven.test.skip=true -B deploy

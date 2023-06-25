@@ -1,4 +1,4 @@
-name: Docker Image CI
+name: build js
 
 on:
   workflow_call:
@@ -74,6 +74,7 @@ jobs:
       - name: Build package
         run: sh build.sh
 
+      # 编译docker镜像
       - name: Build and push docker
         uses: docker/build-push-action@v3
         with:
