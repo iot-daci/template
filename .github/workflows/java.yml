@@ -4,11 +4,12 @@ on:
   workflow_call:
     inputs:
       docker_context:
-        required: true
         type: string
+        required: false
+        default: "."
       docker_image:
-        required: true
         type: string
+        required: true
     secrets:
       MAVEN_USER:
         required: true
@@ -43,6 +44,8 @@ jobs:
       # 设置qemu
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v2
+        with:
+          platforms: linux/amd64
 
       # 设置buildx
       - name: Set up Docker Buildx
