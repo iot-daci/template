@@ -7,6 +7,10 @@ on:
         type: string
         required: false
         default: "deploy"
+      modules:
+        type: string
+        required: false
+        default: ""
 
 jobs:
   build:
@@ -41,4 +45,4 @@ jobs:
 
       # 编译部署maven
       - name: Build maven and deploy
-        run: mvn -Dmaven.test.skip=true -B ${{ inputs.lifecycle }}
+        run: mvn -Dmaven.test.skip=true -B ${{ inputs.lifecycle }} ${{ inputs.modules }}
