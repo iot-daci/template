@@ -23,7 +23,7 @@ jobs:
     container:
       image: lzk90s/java-develop-env:maven3-openjdk11
       volumes:
-        - $HOME/.m2:/root/.m2
+        - /root/.m2:/root/.m2
     env:
       REGISTRY: registry.cn-hangzhou.aliyuncs.com
     steps:
@@ -57,7 +57,7 @@ jobs:
       - name: Use cache
         uses: actions/cache@v3
         with:
-          path: ~/.m2
+          path: /root/.m2
           key: ${{ runner.os }}-m2-${{ hashFiles('**/pom.xml') }}
           restore-keys: |
             ${{ runner.os }}-m2-${{ hashFiles('**/pom.xml') }}
