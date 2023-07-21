@@ -23,7 +23,7 @@ jobs:
     container:
       image: lzk90s/java-develop-env:maven3-openjdk11
       volumes:
-        - ~/.m2:/root/.m2
+        - $HOME/.m2:/root/.m2
     env:
       REGISTRY: registry.cn-hangzhou.aliyuncs.com
     steps:
