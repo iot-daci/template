@@ -50,18 +50,22 @@ jobs:
           username: ${{ secrets.DOCKER_USER }}
           password: ${{ secrets.DOCKER_PASSWORD }}
 
+      # 获取yarn缓存路径
+      - name: Get yarn cache directory path
+        id: yarn-cache-dir-path
+        run: echo "::set-output name=dir::$(yarn cache dir)"
+
       # 挂载缓存
       - name: Use cache
         uses: actions/cache@v3
-        env:
-          CACHE_NAME: cache-for-gsx
+        id: yarn-cache # use this to check for `cache-hit` (`steps.yarn-cache.outputs.cache-hit != 'true'`)
         with:
-          path: /root/.m2
-          key: ${{ runner.os }}-maven-${{ env.CACHE_NAME }}
+          path: ${{ steps.yarn-cache-dir-path.outputs.dir }}
+          key: ${{ runner.os }}-yarn-${{ hashFiles('**/yarn.lock') }}
           restore-keys: |
-            ${{ runner.os }}-maven-
+            ${{ runner.os }}-yarn-
 
-      # 初始化环境变量
+        # 初始化环境变量
       - name: Init builder env
         run: init_env.sh
 

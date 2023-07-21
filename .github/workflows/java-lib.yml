@@ -34,10 +34,11 @@ jobs:
         env:
           CACHE_NAME: cache-for-gsx
         with:
-          path: /root/.m2
-          key: ${{ runner.os }}-maven-${{ env.CACHE_NAME }}
+          path: ~/.m2
+          key: ${{ runner.os }}-m2-${{ hashFiles('**/pom.xml') }}
           restore-keys: |
-            ${{ runner.os }}-maven-
+            ${{ runner.os }}-m2-${{ hashFiles('**/pom.xml') }}
+            ${{ runner.os }}-m2-
 
       # 初始化构建env
       - name: Init builder env

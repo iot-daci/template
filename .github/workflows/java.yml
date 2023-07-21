@@ -22,8 +22,6 @@ jobs:
     runs-on: ubuntu-latest
     container:
       image: lzk90s/java-develop-env:maven3-openjdk11
-      volumes:
-        - /root/.m2:/root/.m2
     env:
       REGISTRY: registry.cn-hangzhou.aliyuncs.com
     steps:
@@ -59,10 +57,11 @@ jobs:
         env:
           CACHE_NAME: cache-for-gsx
         with:
-          path: /root/.m2
-          key: ${{ runner.os }}-maven-${{ env.CACHE_NAME }}
+          path: ~/.m2
+          key: ${{ runner.os }}-m2-${{ hashFiles('**/pom.xml') }}
           restore-keys: |
-            ${{ runner.os }}-maven-
+            ${{ runner.os }}-m2-${{ hashFiles('**/pom.xml') }}
+            ${{ runner.os }}-m2-
 
       # 初始化环境变量
       - name: Init builder env

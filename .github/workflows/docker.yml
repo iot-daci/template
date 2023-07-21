@@ -53,17 +53,6 @@ jobs:
           username: ${{ secrets.DOCKER_USER }}
           password: ${{ secrets.DOCKER_PASSWORD }}
 
-      # 挂载缓存
-      - name: Use cache
-        uses: actions/cache@v3
-        env:
-          CACHE_NAME: cache-for-gsx
-        with:
-          path: /root/.m2
-          key: ${{ runner.os }}-maven-${{ env.CACHE_NAME }}
-          restore-keys: |
-            ${{ runner.os }}-maven-
-
       # 初始化环境变量
       - name: Init builder env
         run: init_env.sh
