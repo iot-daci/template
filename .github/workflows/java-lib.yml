@@ -31,7 +31,7 @@ jobs:
       # 获取缓存路径
       - name: Get cache directory path
         id: yarn-cache-dir-path
-        run: echo "::set-output name=dir::$(echo /root/.m2)"
+        run: echo "dir=/root/.m2" >>$GITHUB_OUTPUT
 
       # 挂载缓存
       - name: Use cache
