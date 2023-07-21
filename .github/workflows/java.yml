@@ -63,9 +63,10 @@ jobs:
         uses: actions/cache@v3
         with:
           path: ${{ steps.yarn-cache-dir-path.outputs.dir }}
-          key: ${{ runner.os }}-m2-${{ hashFiles('**/pom.xml') }}
+          key: ${{ runner.os }}-m2-${{ hashFiles('**/pom.xml') }}-${{ inputs.docker_image }}
           restore-keys: |
-            ${{ runner.os }}-m2-${{ hashFiles('**/pom.xml') }}
+            ${{ runner.os }}-m2-${{ hashFiles('**/pom.xml') }}-${{ inputs.docker_image }}
+            ${{ runner.os }}-m2-${{ hashFiles('**/pom.xml') }}-
             ${{ runner.os }}-m2-
 
       # 初始化环境变量
