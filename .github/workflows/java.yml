@@ -54,7 +54,7 @@ jobs:
           password: ${{ secrets.DOCKER_PASSWORD }}
 
       # 获取缓存路径
-      - name: Get yarn cache directory path
+      - name: Get cache directory path
         id: yarn-cache-dir-path
         run: echo "::set-output name=dir::$(echo /root/.m2)"
 
