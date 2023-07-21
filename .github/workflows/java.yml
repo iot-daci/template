@@ -22,6 +22,8 @@ jobs:
     runs-on: ubuntu-latest
     container:
       image: lzk90s/java-develop-env:maven3-openjdk11
+      volumes:
+        - /root/.m2:/root/.m2
     env:
       REGISTRY: registry.cn-hangzhou.aliyuncs.com
     steps:
@@ -54,8 +56,6 @@ jobs:
       # 挂载缓存
       - name: Use cache
         uses: actions/cache@v3
-        env:
-          CACHE_NAME: cache-for-gsx
         with:
           path: ~/.m2
           key: ${{ runner.os }}-m2-${{ hashFiles('**/pom.xml') }}
