@@ -35,6 +35,20 @@ jobs:
       - name: Set env.BRANCH
         run: echo "BRANCH=$(echo $GITHUB_REF | cut -d'/' -f 3)" >> $GITHUB_ENV
 
+      # docker meta
+      - name: Docker meta
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: |
+            ${{ env.REGISTRY }}/team-gs/${{ inputs.docker_image }}
+          tags: |
+            type=ref,event=branch
+            type=ref,event=pr
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=sha
+
       # 设置qemu
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v2
@@ -81,8 +95,9 @@ jobs:
         uses: docker/build-push-action@v3
         with:
           context: ${{ inputs.docker_context }}
-          push: true
           platforms: linux/amd64
           cache-from: type=gha
           cache-to: type=gha,mode=max
-          tags: ${{ env.REGISTRY }}/team-gs/${{ inputs.docker_image }}:${{ env.BRANCH }}
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
