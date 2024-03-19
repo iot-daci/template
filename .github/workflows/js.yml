@@ -3,6 +3,10 @@ name: build js
 on:
   workflow_call:
     inputs:
+      workdir:
+        type: string
+        required: true
+        default: "."
       docker_context:
         type: string
         required: false
@@ -85,7 +89,7 @@ jobs:
 
       # 编译包
       - name: Build package
-        run: sh build.sh
+        run: cd ${{ inputs.workdir }} && sh build.sh
 
       # 编译docker镜像
       - name: Build and push docker

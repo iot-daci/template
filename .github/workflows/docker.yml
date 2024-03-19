@@ -3,6 +3,10 @@ name: build docker image
 on:
   workflow_call:
     inputs:
+      workdir:
+        type: string
+        required: true
+        default: "."
       docker_context:
         type: string
         required: false
