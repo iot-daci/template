@@ -5,7 +5,7 @@ on:
     inputs:
       workdir:
         type: string
-        required: true
+        required: false
         default: "."
       docker_file:
         type: string
