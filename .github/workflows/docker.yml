@@ -7,10 +7,6 @@ on:
         type: string
         required: false
         default: "."
-      docker_file:
-        type: string
-        required: false
-        default: "Dockerfile"
       docker_context:
         type: string
         required: false
@@ -84,7 +80,6 @@ jobs:
         uses: docker/build-push-action@v5
         with:
           context: ${{ inputs.docker_context }}
-          file: ${{ inputs.docker_file }}
           platforms: linux/amd64
           cache-from: type=gha
           cache-to: type=gha,mode=max
