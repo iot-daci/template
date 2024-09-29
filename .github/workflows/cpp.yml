@@ -76,10 +76,10 @@ jobs:
       - name: Use cache
         uses: actions/cache@v3
         with:
-          path: /app
-          key: ${{ runner.os }}-app
+          path: /cache
+          key: ${{ runner.os }}-app-cache
           restore-keys: |
-            ${{ runner.os }}-app
+            ${{ runner.os }}-app-cache
 
       # 构建包
       - name: Build target
