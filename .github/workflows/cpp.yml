@@ -77,9 +77,9 @@ jobs:
         uses: actions/cache@v3
         with:
           path: /cache
-          key: ${{ runner.os }}-app-cache
+          key: ${{ runner.os }}-cpp-cache
           restore-keys: |
-            ${{ runner.os }}-app-cache
+            ${{ runner.os }}-cpp-cache
 
       # 构建包
       - name: Build target
