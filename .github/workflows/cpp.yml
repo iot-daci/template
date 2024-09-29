@@ -83,7 +83,7 @@ jobs:
 
       # 构建包
       - name: Build target
-        run: bash build.sh
+        run: cd ${{ inputs.work_dir }} && bash build.sh
 
       # 构建docker镜像
       - name: Build and push docker
