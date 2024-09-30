@@ -14,10 +14,6 @@ on:
       docker_image:
         type: string
         required: true
-      docker_file:
-        type: string
-        required: false
-        default: Dockerfile
     secrets:
       DOCKER_USER:
         required: true
@@ -94,7 +90,6 @@ jobs:
         uses: docker/build-push-action@v3
         with:
           context: ${{ inputs.docker_context }}
-          file: ${{ inputs.docker_file }}
           platforms: linux/amd64
           cache-from: type=gha
           cache-to: type=gha,mode=max
