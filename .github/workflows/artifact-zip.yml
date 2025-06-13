@@ -1,0 +1,37 @@
+name: Package and Upload Directory
+
+on:
+  workflow_call:
+    inputs:
+      source_dir:
+        type: string
+        required: false
+        default: "."
+      output_filename:
+        type: string
+        required: false
+        default: "package.zip"
+      artifact_name:
+        type: string
+        required: false
+        default: "packaged-directory"
+
+jobs:
+  package-and-upload:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      
+    - name: Zip directory
+      run: |
+        echo "Packaging directory: ${{ inputs.source_dir }}"
+        echo "Output file: ${{ inputs.output_filename }}"
+        zip -r "${{ inputs.output_filename }}" "${{ inputs.source_dir }}/"
+        
+    - name: Upload ZIP as artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: ${{ inputs.artifact_name }}
+        path: ${{ inputs.output_filename }}
