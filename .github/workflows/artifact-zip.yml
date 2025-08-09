@@ -15,6 +15,10 @@ on:
         type: string
         required: false
         default: "packaged-directory"
+      pre_zip_command:
+        type: string
+        required: false
+        description: "Shell command to execute before zipping (e.g. copy files)"
 
 jobs:
   package-and-upload:
@@ -24,6 +28,12 @@ jobs:
     - name: Checkout repository
       uses: actions/checkout@v4
       
+    - name: Run pre-zip commands
+      if: ${{ inputs.pre_zip_command != '' }}
+      run: |
+        echo "Executing pre-zip command: ${{ inputs.pre_zip_command }}"
+        ${{ inputs.pre_zip_command }}
+        
     - name: Zip directory
       run: |
         echo "Packaging directory: ${{ inputs.source_dir }}"
