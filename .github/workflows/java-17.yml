@@ -95,6 +95,18 @@ jobs:
       - name: Build package
         run: cd ${{ inputs.workdir }} && mvn -Dmaven.test.skip=true -B package
 
+      # 获取当前时间戳
+      - name: Get timestamp
+        id: timestamp
+        run: |
+          TIMESTAMP=$(date +'%Y%m%d%H%M%S')
+          echo "Build timestamp: $TIMESTAMP"
+          echo "TIMESTAMP=$TIMESTAMP" >> $GITHUB_ENV
+
+      # 输出当前时间戳到日志
+      - name: Show timestamp in logs
+        run: echo "The current build timestamp is ${{ env.TIMESTAMP }}"
+        
       # 构建docker镜像
       - name: Build and push docker
         uses: docker/build-push-action@v3
@@ -106,3 +118,10 @@ jobs:
           push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+          
+      # 在Build Summary中显示时间戳
+      - name: Set output for build summary
+        run: echo "VERSION=${{ env.TIMESTAMP }}" >> $GITHUB_ENV
+        
+    outputs:
+      version: ${{ env.TIMESTAMP }}
