@@ -1,0 +1,87 @@
+name: Auto Sync Feature to Dev
+
+on:
+  workflow_call:
+    secrets:
+      github_token:
+        required: true
+
+jobs:
+  sync-feature-to-dev:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.github_token }}
+          fetch-depth: 0
+
+      - name: Setup Git
+        run: |
+          git config user.name "Auto Merge Bot"
+          git config user.email "auto-merge@users.noreply.github.com"
+
+      - name: Get current branch info
+        run: |
+          echo "当前分支: ${{ github.ref_name }}"
+          echo "触发提交: ${{ github.sha }}"
+
+      - name: Check if already merged
+        id: check-merged
+        run: |
+          # 检查是否已经合并到 dev
+          git fetch origin dev
+          if git merge-base --is-ancestor ${{ github.sha }} origin/dev; then
+            echo "✅ 当前提交已经合并到 dev 分支，跳过"
+            echo "already_merged=true" >> $GITHUB_OUTPUT
+          else
+            echo "🔄 需要合并到 dev 分支"
+            echo "already_merged=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Merge to dev
+        if: steps.check-merged.outputs.already_merged == 'false'
+        run: |
+          CURRENT_BRANCH="${{ github.ref_name }}"
+          
+          echo "正在将 $CURRENT_BRANCH 合并到 dev..."
+          
+          # 更新 dev 分支
+          git checkout dev
+          git pull origin dev
+          
+          # 尝试合并
+          if git merge origin/$CURRENT_BRANCH --no-ff -m "Auto-merge: $CURRENT_BRANCH → dev [skip ci]"; then
+            echo "✅ 合并成功，推送更改"
+            git push origin dev
+            echo "🎉 $CURRENT_BRANCH 已自动合并到 dev 分支"
+          else
+            echo "❌ 合并冲突，创建 PR 提醒"
+            git merge --abort
+            
+            # 检查是否已存在相同 PR
+            EXISTING_PR=$(gh pr list --base dev --head $CURRENT_BRANCH --state open --json number --jq '.[0].number' 2>/dev/null || echo "")
+            
+            if [ -z "$EXISTING_PR" ]; then
+              gh pr create \
+                --base dev \
+                --head $CURRENT_BRANCH \
+                --title "🚨 Merge Conflict: $CURRENT_BRANCH → dev" \
+                --body "## 自动合并失败\n\n分支 **$CURRENT_BRANCH** 无法自动合并到 dev，请手动解决冲突。\n\n**冲突文件:**\n\`\`\`\n$(git status --porcelain)\n\`\`\`\n\n**解决方案:**\n1. 在本地切换到 dev 分支: \`git checkout dev && git pull\`\n2. 合并 feature 分支: \`git merge origin/$CURRENT_BRANCH\`\n3. 解决冲突后提交并推送" \
+                --label "conflict,needs-attention"
+              echo "📝 已创建冲突提醒 PR"
+            else
+              echo "📝 冲突 PR 已存在: #$EXISTING_PR"
+            fi
+            exit 1
+          fi
+        env:
+          GH_TOKEN: ${{ secrets.github_token }}
+
+      - name: Success notification
+        if: steps.check-merged.outputs.already_merged == 'false'
+        run: |
+          echo "✨ 自动同步完成"
+          echo "分支: ${{ github.ref_name }} → dev"
+          echo "提交: ${{ github.sha }}"
+          echo "时间: $(date)"
