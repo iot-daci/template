@@ -16,10 +16,12 @@ jobs:
           token: ${{ secrets.GH_TOKEN }}
           fetch-depth: 0
 
-      - name: Setup Git
+      - name: Setup Git and GitHub CLI
         run: |
           git config user.name "Auto Merge Bot"
           git config user.email "auto-merge@users.noreply.github.com"
+          # 配置 GitHub CLI
+          echo ${{ secrets.GH_TOKEN }} | gh auth login --with-token
 
       - name: Get current branch info
         run: |
@@ -29,7 +31,6 @@ jobs:
       - name: Check if already merged
         id: check-merged
         run: |
-          # 检查是否已经合并到 dev
           git fetch origin dev
           if git merge-base --is-ancestor ${{ github.sha }} origin/dev; then
             echo "✅ 当前提交已经合并到 dev 分支，跳过"
@@ -63,15 +64,19 @@ jobs:
             EXISTING_PR=$(gh pr list --base dev --head $CURRENT_BRANCH --state open --json number --jq '.[0].number' 2>/dev/null || echo "")
             
             if [ -z "$EXISTING_PR" ]; then
+              # 创建 PR 但不添加可能不存在的标签
               gh pr create \
                 --base dev \
                 --head $CURRENT_BRANCH \
                 --title "🚨 Merge Conflict: $CURRENT_BRANCH → dev" \
-                --body "## 自动合并失败\n\n分支 **$CURRENT_BRANCH** 无法自动合并到 dev，请手动解决冲突。\n\n**冲突文件:**\n\`\`\`\n$(git status --porcelain)\n\`\`\`\n\n**解决方案:**\n1. 在本地切换到 dev 分支: \`git checkout dev && git pull\`\n2. 合并 feature 分支: \`git merge origin/$CURRENT_BRANCH\`\n3. 解决冲突后提交并推送" \
-                --label "conflict,needs-attention"
+                --body "## 自动合并失败\n\n分支 **$CURRENT_BRANCH** 无法自动合并到 dev，请手动解决冲突。\n\n**冲突文件:**\n\`\`\`\n$(git diff --name-only --diff-filter=U)\n\`\`\`\n\n**解决方案:**\n1. 在本地切换到 dev 分支: \`git checkout dev && git pull\`\n2. 合并 feature 分支: \`git merge origin/$CURRENT_BRANCH\`\n3. 解决冲突后提交并推送\n\n**触发提交:** ${{ github.sha }}" \
+                --label "needs-attention" || echo "⚠️ 创建 PR 成功，但添加标签失败（标签可能不存在）"
               echo "📝 已创建冲突提醒 PR"
             else
               echo "📝 冲突 PR 已存在: #$EXISTING_PR"
+              
+              # 更新现有 PR 标题以提醒冲突仍然存在
+              gh pr edit $EXISTING_PR --title "🚨 [STILL CONFLICT] Merge Conflict: $CURRENT_BRANCH → dev" || echo "⚠️ 无法更新 PR 标题"
             fi
             exit 1
           fi
