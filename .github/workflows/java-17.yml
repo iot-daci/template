@@ -61,6 +61,8 @@ jobs:
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
             type=sha
+            type=raw,value=${{ env.TIMESTAMP }}
+            type=raw,value=build-${{ github.run_number }}
 
       # 设置qemu
       - name: Set up QEMU
