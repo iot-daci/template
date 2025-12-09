@@ -52,7 +52,7 @@ jobs:
           git pull origin dev
           
           # 尝试合并
-          if git merge origin/$CURRENT_BRANCH --no-ff -m "Auto-merge: $CURRENT_BRANCH → dev [skip ci]"; then
+          if git merge origin/$CURRENT_BRANCH --no-ff -m "Auto-merge: $CURRENT_BRANCH → dev"; then
             echo "✅ 合并成功，推送更改"
             git push origin dev
             echo "🎉 $CURRENT_BRANCH 已自动合并到 dev 分支"
