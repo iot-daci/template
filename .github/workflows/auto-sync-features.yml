@@ -70,7 +70,7 @@ jobs:
                 --head $CURRENT_BRANCH \
                 --title "🚨 Merge Conflict: $CURRENT_BRANCH → dev" \
                 --body "## 自动合并失败\n\n分支 **$CURRENT_BRANCH** 无法自动合并到 dev，请手动解决冲突。\n\n**冲突文件:**\n\`\`\`\n$(git diff --name-only --diff-filter=U)\n\`\`\`\n\n**解决方案:**\n1. 在本地切换到 dev 分支: \`git checkout dev && git pull\`\n2. 合并 feature 分支: \`git merge origin/$CURRENT_BRANCH\`\n3. 解决冲突后提交并推送\n\n**触发提交:** ${{ github.sha }}" \
-                --label "needs-attention" || echo "⚠️ 创建 PR 成功，但添加标签失败（标签可能不存在）"
+                || echo "⚠️ 创建 PR 成功，但添加标签失败（标签可能不存在）"
               echo "📝 已创建冲突提醒 PR"
             else
               echo "📝 冲突 PR 已存在: #$EXISTING_PR"
