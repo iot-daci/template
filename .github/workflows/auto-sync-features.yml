@@ -109,6 +109,7 @@ jobs:
         if: steps.get-features.outputs.feature_count != '0'
         env:
           CONFLICT_BRANCHES: ${{ steps.merge-features.outputs.conflict_branches }}
+          GH_TOKEN: ${{ secrets.GH_TOKEN }}
         run: |
           if [ "${{ steps.merge-features.outputs.merge_success }}" = "true" ]; then
             # 所有分支合并成功，推送 dev 分支
@@ -147,8 +148,7 @@ jobs:
             echo "已创建冲突处理分支: $TEMP_BRANCH"
             exit 1
           fi
-        env:
-          GH_TOKEN: ${{ secrets.GH_TOKEN }}
+          
 
       - name: No features notification
         if: steps.get-features.outputs.feature_count == '0'
