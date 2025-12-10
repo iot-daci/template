@@ -7,7 +7,7 @@ on:
         required: true
 
 jobs:
-  sync-all-features-to-dev:
+  rebuild-dev-from-features:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
@@ -16,10 +16,10 @@ jobs:
           token: ${{ secrets.GH_TOKEN }}
           fetch-depth: 0
 
-      - name: Setup Git and GitHub CLI
+      - name: Setup Git
         run: |
-          git config user.name "Auto Merge Bot"
-          git config user.email "auto-merge@users.noreply.github.com"
+          git config user.name "Dev Rebuilder"
+          git config user.email "dev-rebuilder@users.noreply.github.com"
           echo ${{ secrets.GH_TOKEN }} | gh auth login --with-token
 
       - name: Get all feature branches
@@ -40,25 +40,51 @@ jobs:
             echo "feature_list=$FEATURE_BRANCHES" >> $GITHUB_OUTPUT
           fi
 
-      - name: Recreate dev branch from main
-        if: steps.get-features.outputs.feature_count != '0'
+      - name: Check if dev exists
+        id: check-dev
         run: |
-          echo "🔄 从 main 分支重新创建 dev 分支..."
+          # 检查 dev 分支是否存在
+          if git ls-remote --exit-code --heads origin dev; then
+            echo "dev 分支存在"
+            echo "dev_exists=true" >> $GITHUB_OUTPUT
+          else
+            echo "dev 分支不存在"
+            echo "dev_exists=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Recreate or update dev branch
+        env:
+          FEATURE_BRANCHES: ${{ steps.get-features.outputs.feature_list }}
+          DEV_EXISTS: ${{ steps.check-dev.outputs.dev_exists }}
+        run: |
+          echo "🔄 开始重新构建 dev 分支..."
           
           # 确保 main 分支是最新的
           git checkout main
           git pull origin main
           
-          # 删除本地的 dev 分支（如果存在）
-          git branch -D dev 2>/dev/null || true
-          
-          # 删除远程的 dev 分支
-          git push origin --delete dev 2>/dev/null || echo "远程 dev 分支不存在或无法删除"
+          if [ "$DEV_EXISTS" = "true" ]; then
+            echo "dev 分支存在，删除并重新创建..."
+            
+            # 删除本地 dev
+            git branch -D dev 2>/dev/null || true
+            
+            # 删除远程 dev
+            git push origin --delete dev 2>/dev/null || echo "删除远程 dev 失败"
+          fi
           
           # 从 main 创建新的 dev 分支
           git checkout -b dev
           
           echo "✅ 已创建新的 dev 分支（基于最新 main）"
+          
+          # 如果没有 feature 分支，直接推送空的 dev
+          if [ -z "$FEATURE_BRANCHES" ]; then
+            echo "没有 feature 分支需要合并"
+            git push -u origin dev
+            echo "🎉 dev 分支已创建（无 feature 内容）"
+            exit 0
+          fi
 
       - name: Merge all feature branches
         if: steps.get-features.outputs.feature_count != '0'
@@ -66,15 +92,16 @@ jobs:
         env:
           FEATURE_BRANCHES: ${{ steps.get-features.outputs.feature_list }}
         run: |
-          echo "🔄 开始合并所有 feature 分支到 dev..."
+          echo "🔄 合并所有 feature 分支到 dev..."
           echo "要合并的分支: $FEATURE_BRANCHES"
           
           MERGE_SUCCESS="true"
           CONFLICT_BRANCHES=""
+          CONFLICT_DETAILS=""
           
           for branch in $FEATURE_BRANCHES; do
             echo "--------------------------------------------------"
-            echo "📦 处理分支: $branch"
+            echo "📦 合并分支: $branch"
             
             # 确保获取最新的分支
             git fetch origin $branch
@@ -88,7 +115,9 @@ jobs:
               CONFLICT_BRANCHES="$CONFLICT_BRANCHES $branch"
               
               # 记录冲突文件
-              CONFLICT_FILES=$(git diff --name-only --diff-filter=U || echo "无法获取冲突文件")
+              CONFLICT_FILES=$(git diff --name-only --diff-filter=U 2>/dev/null || echo "无法获取冲突文件")
+              CONFLICT_DETAILS="$CONFLICT_DETAILS\n### $branch 的冲突文件:\n\`\`\`\n$CONFLICT_FILES\n\`\`\`\n"
+              
               echo "冲突文件: $CONFLICT_FILES"
               
               # 中止合并
@@ -105,58 +134,48 @@ jobs:
             echo "⚠️ 部分分支合并时发生冲突"
           fi
 
-      - name: Push dev branch or create conflict PR
-        if: steps.get-features.outputs.feature_count != '0'
+      - name: Push dev branch
+        if: steps.get-features.outputs.feature_count != '0' && steps.merge-features.outputs.merge_success == 'true'
+        run: |
+          echo "🚀 推送新的 dev 分支..."
+          git push -u origin dev --force
+          
+          echo "✨ dev 分支重建完成"
+          echo "基于分支: main"
+          echo "合并的 feature 分支: ${{ steps.get-features.outputs.feature_list }}"
+          echo "时间: $(date)"
+
+      - name: Handle merge conflicts
+        if: steps.get-features.outputs.feature_count != '0' && steps.merge-features.outputs.merge_success == 'false'
         env:
           CONFLICT_BRANCHES: ${{ steps.merge-features.outputs.conflict_branches }}
+          FEATURE_LIST: ${{ steps.get-features.outputs.feature_list }}
           GH_TOKEN: ${{ secrets.GH_TOKEN }}
         run: |
-          if [ "${{ steps.merge-features.outputs.merge_success }}" = "true" ]; then
-            # 所有分支合并成功，推送 dev 分支
-            echo "🚀 推送新的 dev 分支到远程..."
-            git push -u origin dev --force
-            
-            echo "✨ 自动同步完成"
-            echo "基于分支: main"
-            echo "合并的 feature 分支: ${{ steps.get-features.outputs.feature_list }}"
-            echo "时间: $(date)"
-          else
-            # 有冲突，创建 PR 提醒
-            echo "📝 创建冲突提醒 PR..."
-            
-            # 先保存当前有冲突的 dev 分支
-            git add .
-            git commit -m "WIP: Partial merge with conflicts" || echo "无内容可提交"
-            
-            # 推送当前有冲突的状态到临时分支
-            TEMP_BRANCH="dev-with-conflicts-$(date +%s)"
-            git checkout -b $TEMP_BRANCH
-            git push -u origin $TEMP_BRANCH
-            
-            # 创建 PR
-            gh pr create \
-              --base main \
-              --head $TEMP_BRANCH \
-              --title "🚨 Merge Conflicts: Feature branches → New Dev" \
-              --body "## 自动合并失败\n\n以下 feature 分支合并到新的 dev 分支时发生冲突：\n\n**冲突分支：**\n- $(echo $CONFLICT_BRANCHES | sed 's/ /\n- /g')\n\n**解决方案：**\n1. 手动解决冲突\n2. 删除旧的 dev 分支\n3. 将此分支重命名为 dev 或重新创建 dev 分支\n\n**说明：**\n- 此 dev 分支是基于最新 main 分支重新创建的\n- 只合并了当前存在的所有 feature-* 分支\n- 已删除的 feature 分支不会包含在内" \
-              --label "needs-attention"
-            
-            # 删除远程 dev 分支（保持为空）
-            git push origin --delete dev 2>/dev/null || echo "远程 dev 分支已被删除或不存在"
-            
-            echo "⚠️ 由于合并冲突，dev 分支未更新"
-            echo "已创建冲突处理分支: $TEMP_BRANCH"
-            exit 1
-          fi
+          echo "📝 处理合并冲突..."
           
-
-      - name: No features notification
-        if: steps.get-features.outputs.feature_count == '0'
-        run: |
-          echo "📭 没有找到任何 feature-* 分支"
-          echo "删除 dev 分支（如果存在）..."
+          # 提交当前状态（包含部分合并）
+          git add .
+          git commit -m "WIP: Partial merge with conflicts" || echo "无内容可提交"
           
-          # 删除 dev 分支，保持与 main 同步
+          # 推送到冲突分支
+          CONFLICT_BRANCH="dev-conflict-$(date +%s)"
+          git checkout -b $CONFLICT_BRANCH
+          git push -u origin $CONFLICT_BRANCH
+          
+          # 删除不完整的 dev 分支
           git push origin --delete dev 2>/dev/null || echo "远程 dev 分支不存在"
           
-          echo "✅ 已清理 dev 分支，因为没有 feature 分支需要合并"
+          # 创建 PR 报告冲突
+          gh pr create \
+            --base main \
+            --head $CONFLICT_BRANCH \
+            --title "🚨 Merge Conflicts in Feature Branches" \
+            --body "## 自动合并失败\n\n以下 feature 分支合并时发生冲突：\n\n**冲突分支：**\n- $(echo $CONFLICT_BRANCHES | sed 's/ /\n- /g')\n\n**所有尝试合并的分支：**\n- $(echo $FEATURE_LIST | sed 's/ /\n- /g')\n\n**说明：**\n1. dev 分支已删除（因为合并不完整）\n2. 请解决冲突后将此分支重命名为 dev\n3. 或者手动合并冲突分支到 main" \
+            --label "needs-attention"
+          
+          echo "⚠️ 由于合并冲突，dev 分支未更新"
+          echo "已创建冲突处理分支: $CONFLICT_BRANCH"
+          echo "冲突分支: $CONFLICT_BRANCHES"
+          exit 1
+          
