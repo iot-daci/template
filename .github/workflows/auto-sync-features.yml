@@ -40,7 +40,27 @@ jobs:
             echo "feature_list=$FEATURE_BRANCHES" >> $GITHUB_OUTPUT
           fi
 
+      - name: Check if sync is needed
+        id: check-sync
+        run: |
+          FEATURE_COUNT=${{ steps.get-features.outputs.feature_count }}
+          
+          if [ "$FEATURE_COUNT" -eq 0 ]; then
+            echo "没有 feature 分支，不需要同步"
+            echo "sync_needed=false" >> $GITHUB_OUTPUT
+            echo "reason=no_features" >> $GITHUB_OUTPUT
+          elif [ "$FEATURE_COUNT" -eq 1 ]; then
+            echo "只有一个 feature 分支，不需要合并到 dev"
+            echo "sync_needed=false" >> $GITHUB_OUTPUT
+            echo "reason=single_feature" >> $GITHUB_OUTPUT
+          else
+            echo "有多个 feature 分支，需要合并到 dev"
+            echo "sync_needed=true" >> $GITHUB_OUTPUT
+            echo "reason=multiple_features" >> $GITHUB_OUTPUT
+          fi
+
       - name: Prepare dev branch
+        if: steps.check-sync.outputs.sync_needed == 'true'
         id: prepare-dev
         run: |
           # 检查 dev 分支是否存在
@@ -58,12 +78,12 @@ jobs:
           fi
 
       - name: Merge all feature branches
-        if: steps.get-features.outputs.feature_count != '0'
+        if: steps.check-sync.outputs.sync_needed == 'true'
         id: merge-features
         env:
           FEATURE_BRANCHES: ${{ steps.get-features.outputs.feature_list }}
         run: |
-          echo "🔄 合并所有 feature 分支到 dev..."
+          echo "🔄 合并多个 feature 分支到 dev..."
           echo "要合并的分支: $FEATURE_BRANCHES"
           
           MERGE_SUCCESS="true"
@@ -77,13 +97,6 @@ jobs:
             
             # 确保获取最新的分支
             git fetch origin $branch
-            
-            # 检查是否已经合并（可选，git merge 会自动处理）
-            # if git merge-base --is-ancestor origin/$branch HEAD 2>/dev/null; then
-            #   echo "✅ $branch 已经合并，跳过"
-            #   SKIPPED_BRANCHES="$SKIPPED_BRANCHES $branch"
-            #   continue
-            # fi
             
             # 尝试合并
             if git merge origin/$branch --no-ff -m "Auto-merge: $branch → dev"; then
@@ -123,7 +136,7 @@ jobs:
           fi
 
       - name: Push dev branch
-        if: steps.get-features.outputs.feature_count != '0' && steps.merge-features.outputs.merge_success == 'true'
+        if: steps.check-sync.outputs.sync_needed == 'true' && steps.merge-features.outputs.merge_success == 'true'
         env:
           MERGED_BRANCHES: ${{ steps.merge-features.outputs.merged_branches }}
           SKIPPED_BRANCHES: ${{ steps.merge-features.outputs.skipped_branches }}
@@ -143,10 +156,9 @@ jobs:
           fi
 
       - name: Handle merge conflicts
-        if: steps.get-features.outputs.feature_count != '0' && steps.merge-features.outputs.merge_success == 'false'
+        if: steps.check-sync.outputs.sync_needed == 'true' && steps.merge-features.outputs.merge_success == 'false'
         env:
           CONFLICT_BRANCHES: ${{ steps.merge-features.outputs.conflict_branches }}
-          FEATURE_LIST: ${{ steps.get-features.outputs.feature_list }}
           MERGED_BRANCHES: ${{ steps.merge-features.outputs.merged_branches }}
           SKIPPED_BRANCHES: ${{ steps.merge-features.outputs.skipped_branches }}
           GH_TOKEN: ${{ secrets.GH_TOKEN }}
@@ -176,18 +188,40 @@ jobs:
           echo "已成功合并: $MERGED_BRANCHES"
           echo "冲突分支: $CONFLICT_BRANCHES"
           echo "已创建 PR 处理冲突"
-          
 
-      - name: No features notification
-        if: steps.get-features.outputs.feature_count == '0'
+      - name: Handle single feature case
+        if: steps.check-sync.outputs.reason == 'single_feature'
+        env:
+          SINGLE_FEATURE: ${{ steps.get-features.outputs.feature_list }}
         run: |
-          echo "📭 没有找到任何 feature-* 分支"
+          echo "ℹ️ 只有一个 feature 分支: $SINGLE_FEATURE"
+          echo "不需要合并到 dev，节省编译资源"
           
-          # 如果 dev 分支不存在，创建一个空的（基于 main）
-          if [ "${{ steps.prepare-dev.outputs.use_existing_dev }}" = "false" ]; then
-            echo "创建空的 dev 分支..."
+          # 可选：检查 dev 是否存在，如果不存在可以创建（基于 main）
+          if ! git ls-remote --exit-code --heads origin dev; then
+            echo "dev 分支不存在，创建空的 dev 分支（基于 main）"
+            git checkout main
+            git pull origin main
+            git checkout -b dev
             git push -u origin dev
-            echo "✅ 已创建 dev 分支（无 feature 内容）"
+            echo "✅ 已创建空的 dev 分支"
+          else
+            echo "dev 分支已存在，无需操作"
+          fi
+
+      - name: Handle no features case
+        if: steps.check-sync.outputs.reason == 'no_features'
+        run: |
+          echo "📭 没有 feature 分支"
+          
+          # 检查 dev 是否存在，如果不存在可以创建
+          if ! git ls-remote --exit-code --heads origin dev; then
+            echo "创建空的 dev 分支（基于 main）"
+            git checkout main
+            git pull origin main
+            git checkout -b dev
+            git push -u origin dev
+            echo "✅ 已创建空的 dev 分支"
           else
             echo "ℹ️ dev 分支已存在，无需操作"
           fi
