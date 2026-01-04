@@ -22,22 +22,28 @@ jobs:
           git config user.email "auto-merge@users.noreply.github.com"
           echo ${{ secrets.GH_TOKEN }} | gh auth login --with-token
 
-      - name: Get all feature branches
-        id: get-features
+      - name: Get all branches to merge
+        id: get-branches
         run: |
           # 获取所有远程 feature-* 分支
           git fetch origin
           FEATURE_BRANCHES=$(git branch -r | grep -E 'origin/feature-' | sed 's/origin\///' | tr '\n' ' ')
           
-          if [ -z "$FEATURE_BRANCHES" ]; then
-            echo "没有找到 feature-* 分支"
-            echo "feature_count=0" >> $GITHUB_OUTPUT
-            echo "feature_list=" >> $GITHUB_OUTPUT
+          # 添加 main 分支到合并列表
+          ALL_BRANCHES_TO_MERGE="$FEATURE_BRANCHES main"
+          
+          # 去除重复和空值
+          ALL_BRANCHES_TO_MERGE=$(echo "$ALL_BRANCHES_TO_MERGE" | tr ' ' '\n' | sort -u | tr '\n' ' ')
+          
+          if [ -z "$FEATURE_BRANCHES" ] && [ -z "$ALL_BRANCHES_TO_MERGE" ]; then
+            echo "没有找到需要合并的分支"
+            echo "branch_count=0" >> $GITHUB_OUTPUT
+            echo "branch_list=" >> $GITHUB_OUTPUT
           else
-            FEATURE_COUNT=$(echo "$FEATURE_BRANCHES" | wc -w)
-            echo "找到 $FEATURE_COUNT 个 feature 分支: $FEATURE_BRANCHES"
-            echo "feature_count=$FEATURE_COUNT" >> $GITHUB_OUTPUT
-            echo "feature_list=$FEATURE_BRANCHES" >> $GITHUB_OUTPUT
+            BRANCH_COUNT=$(echo "$ALL_BRANCHES_TO_MERGE" | wc -w)
+            echo "找到 $BRANCH_COUNT 个需要合并的分支: $ALL_BRANCHES_TO_MERGE"
+            echo "branch_count=$BRANCH_COUNT" >> $GITHUB_OUTPUT
+            echo "branch_list=$ALL_BRANCHES_TO_MERGE" >> $GITHUB_OUTPUT
           fi
 
       - name: Prepare dev branch
@@ -57,21 +63,21 @@ jobs:
             echo "use_existing_dev=false" >> $GITHUB_OUTPUT
           fi
 
-      - name: Merge all feature branches
-        if: steps.get-features.outputs.feature_count != '0'
-        id: merge-features
+      - name: Merge all branches
+        if: steps.get-branches.outputs.branch_count != '0'
+        id: merge-branches
         env:
-          FEATURE_BRANCHES: ${{ steps.get-features.outputs.feature_list }}
+          ALL_BRANCHES: ${{ steps.get-branches.outputs.branch_list }}
         run: |
-          echo "🔄 合并所有 feature 分支到 dev..."
-          echo "要合并的分支: $FEATURE_BRANCHES"
+          echo "🔄 合并所有分支到 dev..."
+          echo "要合并的分支: $ALL_BRANCHES"
           
           MERGE_SUCCESS="true"
           CONFLICT_BRANCHES=""
           MERGED_BRANCHES=""
           SKIPPED_BRANCHES=""
           
-          for branch in $FEATURE_BRANCHES; do
+          for branch in $ALL_BRANCHES; do
             echo "--------------------------------------------------"
             echo "📦 处理分支: $branch"
             
@@ -108,7 +114,7 @@ jobs:
           echo "skipped_branches=$SKIPPED_BRANCHES" >> $GITHUB_OUTPUT
           
           if [ "$MERGE_SUCCESS" = "true" ]; then
-            echo "🎉 所有 feature 分支处理完成"
+            echo "🎉 所有分支处理完成"
             echo "有变更的: $MERGED_BRANCHES"
             echo "无变更的: $SKIPPED_BRANCHES"
           else
@@ -116,10 +122,10 @@ jobs:
           fi
 
       - name: Push dev branch
-        if: steps.get-features.outputs.feature_count != '0' && steps.merge-features.outputs.merge_success == 'true'
+        if: steps.get-branches.outputs.branch_count != '0' && steps.merge-branches.outputs.merge_success == 'true'
         env:
-          MERGED_BRANCHES: ${{ steps.merge-features.outputs.merged_branches }}
-          SKIPPED_BRANCHES: ${{ steps.merge-features.outputs.skipped_branches }}
+          MERGED_BRANCHES: ${{ steps.merge-branches.outputs.merged_branches }}
+          SKIPPED_BRANCHES: ${{ steps.merge-branches.outputs.skipped_branches }}
         run: |
           # 检查是否有实际变更需要推送
           if git diff origin/dev HEAD --quiet; then
@@ -136,11 +142,11 @@ jobs:
           fi
 
       - name: Handle merge conflicts
-        if: steps.get-features.outputs.feature_count != '0' && steps.merge-features.outputs.merge_success == 'false'
+        if: steps.get-branches.outputs.branch_count != '0' && steps.merge-branches.outputs.merge_success == 'false'
         env:
-          CONFLICT_BRANCHES: ${{ steps.merge-features.outputs.conflict_branches }}
-          MERGED_BRANCHES: ${{ steps.merge-features.outputs.merged_branches }}
-          SKIPPED_BRANCHES: ${{ steps.merge-features.outputs.skipped_branches }}
+          CONFLICT_BRANCHES: ${{ steps.merge-branches.outputs.conflict_branches }}
+          MERGED_BRANCHES: ${{ steps.merge-branches.outputs.merged_branches }}
+          SKIPPED_BRANCHES: ${{ steps.merge-branches.outputs.skipped_branches }}
           GH_TOKEN: ${{ secrets.GH_TOKEN }}
         run: |
           echo "📝 处理合并冲突..."
@@ -169,10 +175,10 @@ jobs:
           echo "冲突分支: $CONFLICT_BRANCHES"
           echo "已创建 PR 处理冲突"
 
-      - name: No features notification
-        if: steps.get-features.outputs.feature_count == '0'
+      - name: No branches notification
+        if: steps.get-branches.outputs.branch_count == '0'
         run: |
-          echo "📭 没有找到任何 feature-* 分支"
+          echo "📭 没有找到需要合并的分支"
           
           # 如果 dev 分支不存在，创建一个空的（基于 main）
           if [ "${{ steps.prepare-dev.outputs.use_existing_dev }}" = "false" ]; then
