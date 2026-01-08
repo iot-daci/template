@@ -102,8 +102,12 @@ jobs:
         with:
           context: ${{ inputs.docker_context }}
           platforms: linux/amd64
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          cache-from: |
+            type=gha,scope=${{ inputs.docker_image }}
+            type=registry,ref=${{ env.REGISTRY }}/team-gs/${{ inputs.docker_image }}:cache
+          cache-to: |
+            type=gha,mode=max,scope=${{ inputs.docker_image }}
+            type=registry,ref=${{ env.REGISTRY }}/team-gs/${{ inputs.docker_image }}:cache,mode=max
           push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
