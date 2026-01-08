@@ -110,7 +110,11 @@ jobs:
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "**Artifacts:**" >> $GITHUB_STEP_SUMMARY
           if [ -n "$DOCKER_TAGS" ]; then
-            echo "- Docker Image: \`$DOCKER_TAGS\`" >> $GITHUB_STEP_SUMMARY
+            echo "$DOCKER_TAGS" | while read -r tag; do
+              if [ -n "$tag" ]; then
+                echo "- Docker Image: \`$tag\`" >> $GITHUB_STEP_SUMMARY
+              fi
+            done
           fi
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "📦 Download artifacts from the Actions tab." >> $GITHUB_STEP_SUMMARY
