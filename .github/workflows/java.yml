@@ -20,7 +20,6 @@ on:
       DOCKER_PASSWORD:
         required: true
 
-
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -34,7 +33,6 @@ jobs:
       # 拉取代码
       - name: Checkout source
         uses: actions/checkout@v3
-
 
       # 登录docker
       - name: Login to aliyun docker registry
@@ -63,7 +61,7 @@ jobs:
             type=sha
             type=raw,value=${{ env.TIMESTAMP }}
             type=raw,value=build-${{ github.run_number }}
-            
+
       # 设置qemu
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v2
@@ -104,7 +102,7 @@ jobs:
           TIMESTAMP=$(date +'%Y%m%d%H%M%S')
           echo "Build timestamp: $TIMESTAMP"
           echo "TIMESTAMP=$TIMESTAMP" >> $GITHUB_ENV
-      
+
       # 构建docker镜像
       - name: Build and push docker
         uses: docker/build-push-action@v3
@@ -120,6 +118,30 @@ jobs:
       # 在Build Summary中显示时间戳
       - name: Set output for build summary
         run: echo "VERSION=${{ env.TIMESTAMP }}" >> $GITHUB_ENV
+
+      - name: Summary
+        env:
+          DOCKER_TAGS: ${{ steps.meta.outputs.tags }}
+          BUILD_VERSION: ${{ env.TIMESTAMP }}
+        run: |
+          echo "## 🎉 Build Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "✅ Application built successfully!" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Build Info:**" >> $GITHUB_STEP_SUMMARY
+          echo "- Commit: \`${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- Ref: \`${{ github.ref }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- Architecture: \`$(uname -m)\`" >> $GITHUB_STEP_SUMMARY
+          if [ -n "$BUILD_VERSION" ]; then
+            echo "- Version: \`$BUILD_VERSION\`" >> $GITHUB_STEP_SUMMARY
+          fi
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Artifacts:**" >> $GITHUB_STEP_SUMMARY
+          if [ -n "$DOCKER_TAGS" ]; then
+            echo "- Docker Image: \`$DOCKER_TAGS\`" >> $GITHUB_STEP_SUMMARY
+          fi
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "📦 Download artifacts from the Actions tab." >> $GITHUB_STEP_SUMMARY
 
     outputs:
       version: ${{ env.TIMESTAMP }}
