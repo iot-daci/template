@@ -23,42 +23,62 @@ on:
 jobs:
   package-and-upload:
     runs-on: ubuntu-latest
-    
-    steps:
-    - name: Checkout repository
-      uses: actions/checkout@v4
-      
-    - name: Run pre-zip commands
-      if: ${{ inputs.pre_zip_command != '' }}
-      run: |
-        echo "Executing pre-zip command: ${{ inputs.pre_zip_command }}"
-        ${{ inputs.pre_zip_command }}
-        
-    - name: Zip directory
-      run: |
-        echo "Packaging directory: ${{ inputs.source_dir }}"
-        echo "Output file: ${{ inputs.output_filename }}"
-        zip -r "${{ inputs.output_filename }}" "${{ inputs.source_dir }}/"
-        
-    - name: Upload ZIP as artifact
-      uses: actions/upload-artifact@v4
-      with:
-        name: ${{ inputs.artifact_name }}
-        path: ${{ inputs.output_filename }}
 
-    - name: Summary
-      run: |
-        echo "## 🎉 Build Summary" >> $GITHUB_STEP_SUMMARY
-        echo "" >> $GITHUB_STEP_SUMMARY
-        echo "✅ Package created successfully!" >> $GITHUB_STEP_SUMMARY
-        echo "" >> $GITHUB_STEP_SUMMARY
-        echo "**Build Info:**" >> $GITHUB_STEP_SUMMARY
-        echo "- Commit: \`${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
-        echo "- Ref: \`${{ github.ref }}\`" >> $GITHUB_STEP_SUMMARY
-        echo "- Architecture: \`$(uname -m)\`" >> $GITHUB_STEP_SUMMARY
-        echo "" >> $GITHUB_STEP_SUMMARY
-        echo "**Artifacts:**" >> $GITHUB_STEP_SUMMARY
-        echo "- Package: \`${{ inputs.output_filename }}\`" >> $GITHUB_STEP_SUMMARY
-        echo "- Artifact Name: \`${{ inputs.artifact_name }}\`" >> $GITHUB_STEP_SUMMARY
-        echo "" >> $GITHUB_STEP_SUMMARY
-        echo "📦 Download artifacts from the Actions tab." >> $GITHUB_STEP_SUMMARY
+    steps:
+      - name: Record build start time
+        run: echo "BUILD_START_TIME=$(date +%s)" >> $GITHUB_ENV
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Run pre-zip commands
+        if: ${{ inputs.pre_zip_command != '' }}
+        run: |
+          echo "Executing pre-zip command: ${{ inputs.pre_zip_command }}"
+          ${{ inputs.pre_zip_command }}
+
+      - name: Zip directory
+        run: |
+          echo "Packaging directory: ${{ inputs.source_dir }}"
+          echo "Output file: ${{ inputs.output_filename }}"
+          zip -r "${{ inputs.output_filename }}" "${{ inputs.source_dir }}/"
+
+      - name: Upload ZIP as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ inputs.artifact_name }}
+          path: ${{ inputs.output_filename }}
+
+      - name: Summary
+        if: always()
+        env:
+          JOB_STATUS: ${{ job.status }}
+        run: |
+          BUILD_END_TIME=$(date +%s)
+          BUILD_DURATION=$((BUILD_END_TIME - ${{ env.BUILD_START_TIME }}))
+          BUILD_MINUTES=$((BUILD_DURATION / 60))
+          BUILD_SECONDS=$((BUILD_DURATION % 60))
+
+          if [ "$JOB_STATUS" = "success" ]; then
+            echo "## 🎉 Build Summary" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "✅ Package created successfully!" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "## ❌ Build Summary" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "❌ Build failed!" >> $GITHUB_STEP_SUMMARY
+          fi
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Build Info:**" >> $GITHUB_STEP_SUMMARY
+          echo "- Commit: \`${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- Ref: \`${{ github.ref }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- Architecture: \`$(uname -m)\`" >> $GITHUB_STEP_SUMMARY
+          echo "- Duration: \`${BUILD_MINUTES}m ${BUILD_SECONDS}s\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          if [ "$JOB_STATUS" = "success" ]; then
+            echo "**Artifacts:**" >> $GITHUB_STEP_SUMMARY
+            echo "- Package: \`${{ inputs.output_filename }}\`" >> $GITHUB_STEP_SUMMARY
+            echo "- Artifact Name: \`${{ inputs.artifact_name }}\`" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "📦 Download artifacts from the Actions tab." >> $GITHUB_STEP_SUMMARY
+          fi

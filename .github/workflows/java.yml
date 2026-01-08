@@ -30,13 +30,17 @@ jobs:
     env:
       REGISTRY: registry.cn-hangzhou.aliyuncs.com
     steps:
+      # 记录构建开始时间
+      - name: Record build start time
+        run: echo "BUILD_START_TIME=$(date +%s)" >> $GITHUB_ENV
+
       # 拉取代码
       - name: Checkout source
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       # 登录docker
       - name: Login to aliyun docker registry
-        uses: docker/login-action@v2
+        uses: docker/login-action@v3
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ secrets.DOCKER_USER }}
@@ -45,6 +49,14 @@ jobs:
       # 设置branch环境变量
       - name: Set env.BRANCH
         run: echo "BRANCH=$(echo $GITHUB_REF | cut -d'/' -f 3)" >> $GITHUB_ENV
+
+      # 获取当前时间戳
+      - name: Get timestamp
+        id: timestamp
+        run: |
+          TIMESTAMP=$(date +'%Y%m%d%H%M%S')
+          echo "Build timestamp: $TIMESTAMP"
+          echo "TIMESTAMP=$TIMESTAMP" >> $GITHUB_ENV
 
       # docker meta
       - name: Docker meta
@@ -60,17 +72,16 @@ jobs:
             type=semver,pattern={{major}}.{{minor}}
             type=sha
             type=raw,value=${{ env.TIMESTAMP }}
-            type=raw,value=build-${{ github.run_number }}
 
       # 设置qemu
       - name: Set up QEMU
-        uses: docker/setup-qemu-action@v2
+        uses: docker/setup-qemu-action@v3
         with:
           platforms: linux/amd64
 
       # 设置buildx
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v2
+        uses: docker/setup-buildx-action@v3
 
       # 获取缓存路径
       - name: Get cache directory path
@@ -79,7 +90,7 @@ jobs:
 
       # 挂载缓存
       - name: Use cache
-        uses: actions/cache@v3
+        uses: actions/cache@v4
         with:
           path: ${{ steps.mvn-cache-dir-path.outputs.dir }}
           key: ${{ runner.os }}-m2-${{ hashFiles('**/pom.xml') }}
@@ -95,17 +106,9 @@ jobs:
       - name: Build package
         run: cd ${{ inputs.workdir }} && mvn -Dmaven.test.skip=true -B package
 
-      # 获取当前时间戳
-      - name: Get timestamp
-        id: timestamp
-        run: |
-          TIMESTAMP=$(date +'%Y%m%d%H%M%S')
-          echo "Build timestamp: $TIMESTAMP"
-          echo "TIMESTAMP=$TIMESTAMP" >> $GITHUB_ENV
-
       # 构建docker镜像
       - name: Build and push docker
-        uses: docker/build-push-action@v3
+        uses: docker/build-push-action@v6
         with:
           context: ${{ inputs.docker_context }}
           platforms: linux/amd64
@@ -115,37 +118,49 @@ jobs:
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
 
-      # 在Build Summary中显示时间戳
-      - name: Set output for build summary
-        run: echo "VERSION=${{ env.TIMESTAMP }}" >> $GITHUB_ENV
-
       - name: Summary
+        if: always()
         env:
           DOCKER_TAGS: ${{ steps.meta.outputs.tags }}
           BUILD_VERSION: ${{ env.TIMESTAMP }}
+          JOB_STATUS: ${{ job.status }}
         run: |
-          echo "## 🎉 Build Summary" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "✅ Application built successfully!" >> $GITHUB_STEP_SUMMARY
+          BUILD_END_TIME=$(date +%s)
+          BUILD_DURATION=$((BUILD_END_TIME - ${{ env.BUILD_START_TIME }}))
+          BUILD_MINUTES=$((BUILD_DURATION / 60))
+          BUILD_SECONDS=$((BUILD_DURATION % 60))
+          
+          if [ "$JOB_STATUS" = "success" ]; then
+            echo "## 🎉 Build Summary" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "✅ Application built successfully!" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "## ❌ Build Summary" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "❌ Build failed!" >> $GITHUB_STEP_SUMMARY
+          fi
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "**Build Info:**" >> $GITHUB_STEP_SUMMARY
           echo "- Commit: \`${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
           echo "- Ref: \`${{ github.ref }}\`" >> $GITHUB_STEP_SUMMARY
           echo "- Architecture: \`$(uname -m)\`" >> $GITHUB_STEP_SUMMARY
+          echo "- Duration: \`${BUILD_MINUTES}m ${BUILD_SECONDS}s\`" >> $GITHUB_STEP_SUMMARY
           if [ -n "$BUILD_VERSION" ]; then
             echo "- Version: \`$BUILD_VERSION\`" >> $GITHUB_STEP_SUMMARY
           fi
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**Artifacts:**" >> $GITHUB_STEP_SUMMARY
-          if [ -n "$DOCKER_TAGS" ]; then
-            echo "$DOCKER_TAGS" | while read -r tag; do
-              if [ -n "$tag" ]; then
-                echo "- Docker Image: \`$tag\`" >> $GITHUB_STEP_SUMMARY
-              fi
-            done
+          if [ "$JOB_STATUS" = "success" ]; then
+            echo "**Artifacts:**" >> $GITHUB_STEP_SUMMARY
+            if [ -n "$DOCKER_TAGS" ]; then
+              echo "$DOCKER_TAGS" | while read -r tag; do
+                if [ -n "$tag" ]; then
+                  echo "- Docker Image: \`$tag\`" >> $GITHUB_STEP_SUMMARY
+                fi
+              done
+            fi
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "📦 Download artifacts from the Actions tab." >> $GITHUB_STEP_SUMMARY
           fi
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "📦 Download artifacts from the Actions tab." >> $GITHUB_STEP_SUMMARY
 
     outputs:
       version: ${{ env.TIMESTAMP }}
