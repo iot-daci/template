@@ -74,6 +74,7 @@ jobs:
           
           MERGE_SUCCESS="true"
           CONFLICT_BRANCHES=""
+          CONFLICT_DETAILS=""
           MERGED_BRANCHES=""
           SKIPPED_BRANCHES=""
           
@@ -99,8 +100,25 @@ jobs:
               MERGE_SUCCESS="false"
               CONFLICT_BRANCHES="$CONFLICT_BRANCHES $branch"
               
-              # 记录冲突文件
+              # 获取详细的冲突信息
+              echo "获取冲突详情..."
               CONFLICT_FILES=$(git diff --name-only --diff-filter=U 2>/dev/null || echo "无法获取冲突文件")
+              
+              # 获取冲突的具体内容
+              CONFLICT_CONTENT=""
+              for file in $CONFLICT_FILES; do
+                if [ -f "$file" ]; then
+                  CONFLICT_SNIPPET=$(grep -n '^<<<<<<<' "$file" | head -3 | sed 's/^/    行 /')
+                  if [ -n "$CONFLICT_SNIPPET" ]; then
+                    CONFLICT_CONTENT="$CONFLICT_CONTENT\n文件: $file\n冲突位置:\n$CONFLICT_SNIPPET"
+                  fi
+                fi
+              done
+              
+              # 记录冲突详情
+              BRANCH_DETAILS="分支: $branch\n冲突文件: $CONFLICT_FILES\n$CONFLICT_CONTENT\n"
+              CONFLICT_DETAILS="$CONFLICT_DETAILS\n$BRANCH_DETAILS"
+              
               echo "冲突文件: $CONFLICT_FILES"
               
               # 中止合并
@@ -110,6 +128,9 @@ jobs:
           
           echo "merge_success=$MERGE_SUCCESS" >> $GITHUB_OUTPUT
           echo "conflict_branches=$CONFLICT_BRANCHES" >> $GITHUB_OUTPUT
+          echo "conflict_details<<EOF" >> $GITHUB_OUTPUT
+          echo "$CONFLICT_DETAILS" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
           echo "merged_branches=$MERGED_BRANCHES" >> $GITHUB_OUTPUT
           echo "skipped_branches=$SKIPPED_BRANCHES" >> $GITHUB_OUTPUT
           
@@ -145,35 +166,54 @@ jobs:
         if: steps.get-branches.outputs.branch_count != '0' && steps.merge-branches.outputs.merge_success == 'false'
         env:
           CONFLICT_BRANCHES: ${{ steps.merge-branches.outputs.conflict_branches }}
+          CONFLICT_DETAILS: ${{ steps.merge-branches.outputs.conflict_details }}
           MERGED_BRANCHES: ${{ steps.merge-branches.outputs.merged_branches }}
           SKIPPED_BRANCHES: ${{ steps.merge-branches.outputs.skipped_branches }}
-          GH_TOKEN: ${{ secrets.GH_TOKEN }}
         run: |
-          echo "📝 处理合并冲突..."
+          echo " "
+          echo "❌❌❌ 合并冲突 ❌❌❌"
+          echo "========================================"
+          echo "⚠️ 自动合并失败，需要手动处理冲突"
+          echo " "
+          echo "📋 冲突分支:"
+          for branch in $CONFLICT_BRANCHES; do
+            echo "  • $branch"
+          done
+          echo " "
+          echo "✅ 已成功合并的分支: $MERGED_BRANCHES"
+          echo "⏭️  跳过的分支: $SKIPPED_BRANCHES"
+          echo " "
+          echo "🔍 冲突详情:"
+          echo "$CONFLICT_DETAILS"
+          echo " "
+          echo "🛠️ 手动处理步骤:"
+          echo "1. 切换到 dev 分支:"
+          echo "   git checkout dev && git pull origin dev"
+          echo " "
+          echo "2. 手动合并冲突分支 (选择一种方式):"
+          echo "   a) 逐个合并冲突分支:"
+          for branch in $CONFLICT_BRANCHES; do
+            echo "      git merge origin/$branch"
+          done
+          echo " "
+          echo "   b) 或使用 GitHub Desktop/GitKraken 等工具"
+          echo " "
+          echo "3. 解决所有冲突文件:"
+          echo "   编辑有 <<<<<<<, =======, >>>>>>> 标记的文件"
+          echo "   保留需要的代码，删除冲突标记"
+          echo " "
+          echo "4. 提交解决后的代码:"
+          echo "   git add ."
+          echo "   git commit -m '解决合并冲突: $CONFLICT_BRANCHES'"
+          echo "   git push origin dev"
+          echo " "
+          echo "5. 重新运行此工作流"
+          echo "========================================"
           
-          # 先推送已成功合并的部分（如果有）
-          if [ -n "$MERGED_BRANCHES" ]; then
-            echo "推送已成功合并的部分..."
-            git push origin dev
-            echo "✅ 已推送成功合并的部分"
-          fi
+          # 可选：创建 issue 通知（如果需要）
+          # gh issue create --title "合并冲突需要处理" --body "冲突分支: $CONFLICT_BRANCHES\n\n$CONFLICT_DETAILS" --label "conflict"
           
-          # 创建冲突报告 PR
-          CONFLICT_BRANCH="dev-conflict-$(date +%s)"
-          git checkout -b $CONFLICT_BRANCH
-          git push -u origin $CONFLICT_BRANCH
-          
-          gh pr create \
-            --base dev \
-            --head $CONFLICT_BRANCH \
-            --title "🚨 Merge Conflicts: Some Feature Branches → Dev" \
-            --body "## 部分合并完成，但有冲突\n\n**成功合并的分支：**\n- $(echo $MERGED_BRANCHES | sed 's/ /\n- /g')\n\n**跳过的分支（无变更）：**\n- $(echo $SKIPPED_BRANCHES | sed 's/ /\n- /g')\n\n**冲突分支：**\n- $(echo $CONFLICT_BRANCHES | sed 's/ /\n- /g')\n\n**说明：**\n1. 已成功合并的部分已推送到 dev 分支\n2. 请解决冲突后合并此 PR 到 dev" \
-            --label "needs-attention"
-          
-          echo "⚠️ 部分分支合并冲突"
-          echo "已成功合并: $MERGED_BRANCHES"
-          echo "冲突分支: $CONFLICT_BRANCHES"
-          echo "已创建 PR 处理冲突"
+          exit 1
 
       - name: No branches notification
         if: steps.get-branches.outputs.branch_count == '0'
