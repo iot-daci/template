@@ -10,6 +10,9 @@ jobs:
   sync-all-features-to-dev:
     runs-on: ubuntu-latest
     steps:
+      - name: Record build start time
+        run: echo "BUILD_START_TIME=$(date +%s)" >> $GITHUB_ENV
+
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
@@ -74,9 +77,9 @@ jobs:
           
           MERGE_SUCCESS="true"
           CONFLICT_BRANCHES=""
-          CONFLICT_DETAILS=""
           MERGED_BRANCHES=""
           SKIPPED_BRANCHES=""
+          CONFLICT_DETAILS=""
           
           for branch in $ALL_BRANCHES; do
             echo "--------------------------------------------------"
@@ -100,26 +103,15 @@ jobs:
               MERGE_SUCCESS="false"
               CONFLICT_BRANCHES="$CONFLICT_BRANCHES $branch"
               
-              # 获取详细的冲突信息
-              echo "获取冲突详情..."
+              # 记录冲突文件
               CONFLICT_FILES=$(git diff --name-only --diff-filter=U 2>/dev/null || echo "无法获取冲突文件")
-              
-              # 获取冲突的具体内容
-              CONFLICT_CONTENT=""
-              for file in $CONFLICT_FILES; do
-                if [ -f "$file" ]; then
-                  CONFLICT_SNIPPET=$(grep -n '^<<<<<<<' "$file" | head -3 | sed 's/^/    行 /')
-                  if [ -n "$CONFLICT_SNIPPET" ]; then
-                    CONFLICT_CONTENT="$CONFLICT_CONTENT\n文件: $file\n冲突位置:\n$CONFLICT_SNIPPET"
-                  fi
-                fi
-              done
-              
-              # 记录冲突详情
-              BRANCH_DETAILS="分支: $branch\n冲突文件: $CONFLICT_FILES\n$CONFLICT_CONTENT\n"
-              CONFLICT_DETAILS="$CONFLICT_DETAILS\n$BRANCH_DETAILS"
-              
               echo "冲突文件: $CONFLICT_FILES"
+              
+              # 保存冲突详情
+              if [ -n "$CONFLICT_DETAILS" ]; then
+                CONFLICT_DETAILS="$CONFLICT_DETAILS\n"
+              fi
+              CONFLICT_DETAILS="${CONFLICT_DETAILS}分支 \`$branch\`: $CONFLICT_FILES"
               
               # 中止合并
               git merge --abort
@@ -128,11 +120,11 @@ jobs:
           
           echo "merge_success=$MERGE_SUCCESS" >> $GITHUB_OUTPUT
           echo "conflict_branches=$CONFLICT_BRANCHES" >> $GITHUB_OUTPUT
-          echo "conflict_details<<EOF" >> $GITHUB_OUTPUT
-          echo "$CONFLICT_DETAILS" >> $GITHUB_OUTPUT
-          echo "EOF" >> $GITHUB_OUTPUT
           echo "merged_branches=$MERGED_BRANCHES" >> $GITHUB_OUTPUT
           echo "skipped_branches=$SKIPPED_BRANCHES" >> $GITHUB_OUTPUT
+          echo "conflict_details<<EOF" >> $GITHUB_OUTPUT
+          echo -e "$CONFLICT_DETAILS" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
           
           if [ "$MERGE_SUCCESS" = "true" ]; then
             echo "🎉 所有分支处理完成"
@@ -166,54 +158,22 @@ jobs:
         if: steps.get-branches.outputs.branch_count != '0' && steps.merge-branches.outputs.merge_success == 'false'
         env:
           CONFLICT_BRANCHES: ${{ steps.merge-branches.outputs.conflict_branches }}
-          CONFLICT_DETAILS: ${{ steps.merge-branches.outputs.conflict_details }}
           MERGED_BRANCHES: ${{ steps.merge-branches.outputs.merged_branches }}
           SKIPPED_BRANCHES: ${{ steps.merge-branches.outputs.skipped_branches }}
         run: |
-          echo " "
-          echo "❌❌❌ 合并冲突 ❌❌❌"
-          echo "========================================"
-          echo "⚠️ 自动合并失败，需要手动处理冲突"
-          echo " "
-          echo "📋 冲突分支:"
-          for branch in $CONFLICT_BRANCHES; do
-            echo "  • $branch"
-          done
-          echo " "
-          echo "✅ 已成功合并的分支: $MERGED_BRANCHES"
-          echo "⏭️  跳过的分支: $SKIPPED_BRANCHES"
-          echo " "
-          echo "🔍 冲突详情:"
-          echo "$CONFLICT_DETAILS"
-          echo " "
-          echo "🛠️ 手动处理步骤:"
-          echo "1. 切换到 dev 分支:"
-          echo "   git checkout dev && git pull origin dev"
-          echo " "
-          echo "2. 手动合并冲突分支 (选择一种方式):"
-          echo "   a) 逐个合并冲突分支:"
-          for branch in $CONFLICT_BRANCHES; do
-            echo "      git merge origin/$branch"
-          done
-          echo " "
-          echo "   b) 或使用 GitHub Desktop/GitKraken 等工具"
-          echo " "
-          echo "3. 解决所有冲突文件:"
-          echo "   编辑有 <<<<<<<, =======, >>>>>>> 标记的文件"
-          echo "   保留需要的代码，删除冲突标记"
-          echo " "
-          echo "4. 提交解决后的代码:"
-          echo "   git add ."
-          echo "   git commit -m '解决合并冲突: $CONFLICT_BRANCHES'"
-          echo "   git push origin dev"
-          echo " "
-          echo "5. 重新运行此工作流"
-          echo "========================================"
+          echo "📝 处理合并冲突..."
           
-          # 可选：创建 issue 通知（如果需要）
-          # gh issue create --title "合并冲突需要处理" --body "冲突分支: $CONFLICT_BRANCHES\n\n$CONFLICT_DETAILS" --label "conflict"
+          # 先推送已成功合并的部分（如果有）
+          if [ -n "$MERGED_BRANCHES" ]; then
+            echo "推送已成功合并的部分..."
+            git push origin dev
+            echo "✅ 已推送成功合并的部分"
+          fi
           
-          exit 1
+          echo "⚠️ 部分分支合并冲突"
+          echo "已成功合并: $MERGED_BRANCHES"
+          echo "冲突分支: $CONFLICT_BRANCHES"
+          echo "请查看 Summary 了解详细冲突信息和解决方法"
 
       - name: No branches notification
         if: steps.get-branches.outputs.branch_count == '0'
@@ -228,3 +188,101 @@ jobs:
           else
             echo "ℹ️ dev 分支已存在，无需操作"
           fi
+
+      - name: Summary
+        if: always()
+        env:
+          JOB_STATUS: ${{ job.status }}
+          BUILD_START_TIME: ${{ env.BUILD_START_TIME }}
+        run: |
+          BUILD_END_TIME=$(date +%s)
+          BUILD_START=${BUILD_START_TIME:-$BUILD_END_TIME}
+          BUILD_DURATION=$((BUILD_END_TIME - BUILD_START))
+          BUILD_MINUTES=$((BUILD_DURATION / 60))
+          BUILD_SECONDS=$((BUILD_DURATION % 60))
+          
+          echo "## 🔄 Auto Sync Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          # 根据不同的情况显示不同的状态
+          if [ "${{ steps.get-branches.outputs.branch_count }}" = "0" ]; then
+            echo "ℹ️ **状态:** 没有找到需要合并的分支" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            if [ "${{ steps.prepare-dev.outputs.use_existing_dev }}" = "false" ]; then
+              echo "✅ 已创建空的 dev 分支（基于 main）" >> $GITHUB_STEP_SUMMARY
+            else
+              echo "ℹ️ dev 分支已存在，无需操作" >> $GITHUB_STEP_SUMMARY
+            fi
+          elif [ "${{ steps.merge-branches.outputs.merge_success }}" = "true" ]; then
+            echo "✅ **状态:** 所有分支合并成功！" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "**合并结果:**" >> $GITHUB_STEP_SUMMARY
+            if [ -n "${{ steps.merge-branches.outputs.merged_branches }}" ]; then
+              echo "- ✅ 成功合并的分支: \`${{ steps.merge-branches.outputs.merged_branches }}\`" >> $GITHUB_STEP_SUMMARY
+            fi
+            if [ -n "${{ steps.merge-branches.outputs.skipped_branches }}" ]; then
+              echo "- ⏭️ 跳过的分支（无变更）: \`${{ steps.merge-branches.outputs.skipped_branches }}\`" >> $GITHUB_STEP_SUMMARY
+            fi
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "**Dev 分支信息:**" >> $GITHUB_STEP_SUMMARY
+            echo "- 基于: \`${{ steps.prepare-dev.outputs.use_existing_dev == 'true' && '现有 dev' || 'main' }}\`" >> $GITHUB_STEP_SUMMARY
+            echo "- 已推送到远程仓库" >> $GITHUB_STEP_SUMMARY
+          elif [ "${{ steps.merge-branches.outputs.merge_success }}" = "false" ]; then
+            echo "❌ **状态:** 部分分支合并时发生冲突" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "**合并结果:**" >> $GITHUB_STEP_SUMMARY
+            if [ -n "${{ steps.merge-branches.outputs.merged_branches }}" ]; then
+              echo "- ✅ 成功合并的分支: \`${{ steps.merge-branches.outputs.merged_branches }}\`" >> $GITHUB_STEP_SUMMARY
+            fi
+            if [ -n "${{ steps.merge-branches.outputs.skipped_branches }}" ]; then
+              echo "- ⏭️ 跳过的分支（无变更）: \`${{ steps.merge-branches.outputs.skipped_branches }}\`" >> $GITHUB_STEP_SUMMARY
+            fi
+            if [ -n "${{ steps.merge-branches.outputs.conflict_branches }}" ]; then
+              echo "- ❌ 冲突分支: \`${{ steps.merge-branches.outputs.conflict_branches }}\`" >> $GITHUB_STEP_SUMMARY
+            fi
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "**冲突详情:**" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            echo "${{ steps.merge-branches.outputs.conflict_details }}" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "**解决方案:**" >> $GITHUB_STEP_SUMMARY
+            echo "1. ✅ 已成功合并的部分已推送到 \`dev\` 分支" >> $GITHUB_STEP_SUMMARY
+            echo "2. 请按以下步骤解决冲突分支:" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "**解决冲突的方法:**" >> $GITHUB_STEP_SUMMARY
+            echo '```bash' >> $GITHUB_STEP_SUMMARY
+            echo "# 1. 检出 dev 分支" >> $GITHUB_STEP_SUMMARY
+            echo "git checkout dev" >> $GITHUB_STEP_SUMMARY
+            echo "git pull origin dev" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "# 2. 合并冲突分支（例如: feature-xxx）" >> $GITHUB_STEP_SUMMARY
+            echo "git merge origin/feature-xxx" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "# 3. 查看冲突文件" >> $GITHUB_STEP_SUMMARY
+            echo "git status" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "# 4. 手动编辑冲突文件，解决冲突标记（<<<<<<, ======, >>>>>>）" >> $GITHUB_STEP_SUMMARY
+            echo "# 编辑冲突文件..." >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "# 5. 标记冲突已解决并提交" >> $GITHUB_STEP_SUMMARY
+            echo "git add <冲突文件>" >> $GITHUB_STEP_SUMMARY
+            echo "git commit -m \"Resolve merge conflicts with feature-xxx\"" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "# 6. 推送到远程" >> $GITHUB_STEP_SUMMARY
+            echo "git push origin dev" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "**提示:**" >> $GITHUB_STEP_SUMMARY
+            echo "- 冲突文件位置已在上方冲突详情中列出" >> $GITHUB_STEP_SUMMARY
+            echo "- 解决冲突后，可以重新运行此工作流来合并剩余分支" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "⚠️ **状态:** 工作流执行异常" >> $GITHUB_STEP_SUMMARY
+          fi
+          
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**执行信息:**" >> $GITHUB_STEP_SUMMARY
+          echo "- 分支数量: \`${{ steps.get-branches.outputs.branch_count }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- 执行时长: \`${BUILD_MINUTES}m ${BUILD_SECONDS}s\`" >> $GITHUB_STEP_SUMMARY
+          echo "- Commit: \`${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- Ref: \`${{ github.ref }}\`" >> $GITHUB_STEP_SUMMARY
