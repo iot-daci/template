@@ -132,6 +132,9 @@ jobs:
             echo "无变更的: $SKIPPED_BRANCHES"
           else
             echo "⚠️ 部分分支合并时发生冲突"
+            # 关键：冲突时立即退出并失败
+            echo "::error::合并冲突，请查看 Summary 了解详情"
+            exit 1
           fi
 
       - name: Push dev branch
@@ -154,14 +157,14 @@ jobs:
             echo "时间: $(date)"
           fi
 
-      - name: Handle merge conflicts
+      - name: Handle merge conflicts (info only)
         if: steps.get-branches.outputs.branch_count != '0' && steps.merge-branches.outputs.merge_success == 'false'
         env:
           CONFLICT_BRANCHES: ${{ steps.merge-branches.outputs.conflict_branches }}
           MERGED_BRANCHES: ${{ steps.merge-branches.outputs.merged_branches }}
           SKIPPED_BRANCHES: ${{ steps.merge-branches.outputs.skipped_branches }}
         run: |
-          echo "📝 处理合并冲突..."
+          echo "📝 冲突处理信息..."
           
           # 先推送已成功合并的部分（如果有）
           if [ -n "$MERGED_BRANCHES" ]; then
@@ -228,11 +231,12 @@ jobs:
             echo "- 基于: \`${{ steps.prepare-dev.outputs.use_existing_dev == 'true' && '现有 dev' || 'main' }}\`" >> $GITHUB_STEP_SUMMARY
             echo "- 已推送到远程仓库" >> $GITHUB_STEP_SUMMARY
           elif [ "${{ steps.merge-branches.outputs.merge_success }}" = "false" ]; then
-            echo "❌ **状态:** 部分分支合并时发生冲突" >> $GITHUB_STEP_SUMMARY
+            echo "❌ **状态:** ❌ 合并冲突 - Workflow 失败" >> $GITHUB_STEP_SUMMARY
             echo "" >> $GITHUB_STEP_SUMMARY
             echo "**合并结果:**" >> $GITHUB_STEP_SUMMARY
             if [ -n "${{ steps.merge-branches.outputs.merged_branches }}" ]; then
               echo "- ✅ 成功合并的分支: \`${{ steps.merge-branches.outputs.merged_branches }}\`" >> $GITHUB_STEP_SUMMARY
+              echo "  (已推送到 dev 分支)" >> $GITHUB_STEP_SUMMARY
             fi
             if [ -n "${{ steps.merge-branches.outputs.skipped_branches }}" ]; then
               echo "- ⏭️ 跳过的分支（无变更）: \`${{ steps.merge-branches.outputs.skipped_branches }}\`" >> $GITHUB_STEP_SUMMARY
@@ -248,7 +252,7 @@ jobs:
             echo "" >> $GITHUB_STEP_SUMMARY
             echo "**解决方案:**" >> $GITHUB_STEP_SUMMARY
             echo "1. ✅ 已成功合并的部分已推送到 \`dev\` 分支" >> $GITHUB_STEP_SUMMARY
-            echo "2. 请按以下步骤解决冲突分支:" >> $GITHUB_STEP_SUMMARY
+            echo "2. ❌ 请按以下步骤解决冲突分支:" >> $GITHUB_STEP_SUMMARY
             echo "" >> $GITHUB_STEP_SUMMARY
             echo "**解决冲突的方法:**" >> $GITHUB_STEP_SUMMARY
             echo '```bash' >> $GITHUB_STEP_SUMMARY
@@ -276,6 +280,7 @@ jobs:
             echo "**提示:**" >> $GITHUB_STEP_SUMMARY
             echo "- 冲突文件位置已在上方冲突详情中列出" >> $GITHUB_STEP_SUMMARY
             echo "- 解决冲突后，可以重新运行此工作流来合并剩余分支" >> $GITHUB_STEP_SUMMARY
+            echo "- **⚠️ 重要: 此工作流因冲突而失败，需要手动解决冲突后才能继续**" >> $GITHUB_STEP_SUMMARY
           else
             echo "⚠️ **状态:** 工作流执行异常" >> $GITHUB_STEP_SUMMARY
           fi
