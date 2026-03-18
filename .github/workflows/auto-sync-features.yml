@@ -10,14 +10,15 @@ jobs:
   sync-all-features-to-dev:
     runs-on: ubuntu-latest
     steps:
-      - name: Record build start time
-        run: echo "BUILD_START_TIME=$(date +%s)" >> $GITHUB_ENV
 
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
           token: ${{ secrets.GH_TOKEN }}
           fetch-depth: 0
+          
+      - name: Record build start time
+        run: echo "BUILD_START_TIME=$(date +%s)" >> $GITHUB_ENV
 
       - name: Setup Git
         run: |

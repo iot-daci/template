@@ -30,13 +30,14 @@ jobs:
     env:
       REGISTRY: registry.cn-hangzhou.aliyuncs.com
     steps:
-      # 记录构建开始时间
-      - name: Record build start time
-        run: echo "BUILD_START_TIME=$(date +%s)" >> $GITHUB_ENV
 
       # 拉取代码
       - name: Checkout source
         uses: actions/checkout@v4
+      
+      # 记录构建开始时间
+      - name: Record build start time
+        run: echo "BUILD_START_TIME=$(date +%s)" >> $GITHUB_ENV
 
       # 登录docker
       - name: Login to aliyun docker registry

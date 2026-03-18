@@ -24,13 +24,14 @@ jobs:
       volumes:
         - /root/.m2:/root/.m2
     steps:
-      # 记录构建开始时间
-      - name: Record build start time
-        run: echo "BUILD_START_TIME=$(date +%s)" >> $GITHUB_ENV
 
       # 拉取代码
       - name: Checkout source
         uses: actions/checkout@v4
+
+      # 记录构建开始时间
+      - name: Record build start time
+        run: echo "BUILD_START_TIME=$(date +%s)" >> $GITHUB_ENV
 
       # 设置branch变量
       - name: Set env.BRANCH

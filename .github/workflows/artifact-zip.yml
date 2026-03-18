@@ -25,11 +25,11 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Record build start time
-        run: echo "BUILD_START_TIME=$(date +%s)" >> $GITHUB_ENV
-
       - name: Checkout repository
         uses: actions/checkout@v4
+
+      - name: Record build start time
+        run: echo "BUILD_START_TIME=$(date +%s)" >> $GITHUB_ENV
 
       - name: Run pre-zip commands
         if: ${{ inputs.pre_zip_command != '' }}

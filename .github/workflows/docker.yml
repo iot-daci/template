@@ -38,11 +38,11 @@ jobs:
         working-directory: ${{ inputs.workdir }}
 
     steps:
-      - name: Record build start time
-        run: echo "BUILD_START_TIME=$(date +%s)" >> $GITHUB_ENV
-
       - name: Checkout source
         uses: actions/checkout@v4
+
+      - name: Record build start time
+        run: echo "BUILD_START_TIME=$(date +%s)" >> $GITHUB_ENV
 
       - name: Login to aliyun docker registry
         uses: docker/login-action@v3
