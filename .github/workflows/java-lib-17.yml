@@ -1,0 +1,95 @@
+name: build java lib
+
+on:
+  workflow_call:
+    inputs:
+      lifecycle:
+        type: string
+        required: false
+        default: "deploy"
+      modules:
+        type: string
+        required: false
+        default: ""
+      workdir:
+        type: string
+        required: false
+        default: .
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    container:
+      image: lzk90s/java-develop-env:maven3-openjdk17
+      volumes:
+        - /root/.m2:/root/.m2
+    steps:
+
+      # 拉取代码
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      # 记录构建开始时间
+      - name: Record build start time
+        run: echo "BUILD_START_TIME=$(date +%s)" >> $GITHUB_ENV
+
+      # 设置branch变量
+      - name: Set env.BRANCH
+        run: echo "BRANCH=$(echo $GITHUB_REF | cut -d'/' -f 3)" >> $GITHUB_ENV
+
+      # 获取缓存路径
+      - name: Get cache directory path
+        id: mvn-cache-dir-path
+        run: echo "dir=/root/.m2" >>$GITHUB_OUTPUT
+
+      # 挂载缓存
+      - name: Use cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ steps.mvn-cache-dir-path.outputs.dir }}
+          key: ${{ runner.os }}-m2-${{ hashFiles('**/pom.xml') }}
+          restore-keys: |
+            ${{ runner.os }}-m2-${{ hashFiles('**/pom.xml') }}
+            ${{ runner.os }}-m2-
+
+      # 初始化构建env
+      - name: Init builder env
+        run: init_env.sh
+
+      # 编译部署maven
+      - name: Build maven and deploy
+        run: cd ${{ inputs.workdir }} && mvn -Dmaven.test.skip=true -B ${{ inputs.lifecycle }} ${{ inputs.modules }}
+
+      - name: Summary
+        if: always()
+        env:
+          JOB_STATUS: ${{ job.status }}
+        run: |
+          BUILD_END_TIME=$(date +%s)
+          BUILD_DURATION=$((BUILD_END_TIME - ${{ env.BUILD_START_TIME }}))
+          BUILD_MINUTES=$((BUILD_DURATION / 60))
+          BUILD_SECONDS=$((BUILD_DURATION % 60))
+
+          if [ "$JOB_STATUS" = "success" ]; then
+            echo "## 🎉 Build Summary" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "✅ Library built and deployed successfully!" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "## ❌ Build Summary" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "❌ Build failed!" >> $GITHUB_STEP_SUMMARY
+          fi
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Build Info:**" >> $GITHUB_STEP_SUMMARY
+          echo "- Commit: \`${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- Ref: \`${{ github.ref }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- Architecture: \`$(uname -m)\`" >> $GITHUB_STEP_SUMMARY
+          echo "- Duration: \`${BUILD_MINUTES}m ${BUILD_SECONDS}s\`" >> $GITHUB_STEP_SUMMARY
+          echo "- Lifecycle: \`${{ inputs.lifecycle }}\`" >> $GITHUB_STEP_SUMMARY
+          if [ -n "${{ inputs.modules }}" ]; then
+            echo "- Modules: \`${{ inputs.modules }}\`" >> $GITHUB_STEP_SUMMARY
+          fi
+          echo "" >> $GITHUB_STEP_SUMMARY
+          if [ "$JOB_STATUS" = "success" ]; then
+            echo "📦 Library deployed to Maven repository." >> $GITHUB_STEP_SUMMARY
+          fi
