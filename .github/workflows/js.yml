@@ -97,6 +97,14 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-yarn-
 
+      # 获取Node版本
+      - name: Get Node version
+        id: node-version
+        run: |
+          NODE_VERSION=$(node --version)
+          echo "Node version: $NODE_VERSION"
+          echo "NODE_VERSION=$NODE_VERSION" >> $GITHUB_ENV
+
       # 初始化环境变量
       - name: Init builder env
         run: init_env.sh
@@ -141,6 +149,7 @@ jobs:
           echo "**Build Info:**" >> $GITHUB_STEP_SUMMARY
           echo "- Commit: \`${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
           echo "- Ref: \`${{ github.ref }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- Node Version: \`${{ env.NODE_VERSION }}\`" >> $GITHUB_STEP_SUMMARY
           echo "- Architecture: \`$(uname -m)\`" >> $GITHUB_STEP_SUMMARY
           echo "- Duration: \`${BUILD_MINUTES}m ${BUILD_SECONDS}s\`" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
