@@ -1,61 +1,46 @@
-# 可复用 workflow：caller job 必须声明 permissions，例如：
-#   permissions:
-#     contents: read
-#     pull-requests: write
-#     issues: write
-#     id-token: write
+# 可复用 workflow，由业务仓 issue_comment（/review）触发。
+# caller job 须声明 permissions: contents:read, pull-requests:write, issues:write, id-token:write
 name: Claude PR Review
 
 on:
   workflow_call:
     inputs:
+      pr_number:
+        description: "Pull Request 编号（/review 触发时传 github.event.issue.number）"
+        type: string
+        required: true
+      model:
+        description: "Claude 模型 ID（须与 API/代理令牌权限一致）"
+        type: string
+        required: false
+        default: "claude-sonnet-4-6"
       max_turns:
-        description: "Claude Code 最大对话轮数（大型 PR 可调到 60～80）"
+        description: "最大对话轮数"
         type: number
         required: false
         default: 50
       post_inline_comments:
-        description: "是否在 diff 行发 inline comment（每条占多轮；大 PR 建议 false，只发 PR 总结）"
+        description: "是否在 diff 行发 inline comment（大 PR 建议 false）"
         type: boolean
         required: false
         default: false
       track_progress:
-        description: "是否在 PR 上显示审查进度评论（仅 pull_request 等事件有效；workflow_dispatch 会自动关闭）"
+        description: "是否在 PR 上显示审查进度评论"
         type: boolean
         required: false
         default: true
       extra_review_instructions:
-        description: "追加到审查 prompt 的额外说明（可选）"
-        type: string
-        required: false
-        default: ""
-      fail_on_blocking:
-        description: "存在 blocking 问题时是否让 job 失败（用于分支保护）"
-        type: boolean
-        required: false
-        default: true
-      model:
-        description: "Claude 模型 ID（须与 API/代理令牌权限一致；勿留空以免 action 默认 opus）"
-        type: string
-        required: false
-        default: "claude-sonnet-4-6"
-      use_code_review_plugin:
-        description: "是否使用官方 code-review 插件（true 时忽略自定义审查 prompt）"
-        type: boolean
-        required: false
-        default: false
-      anthropic_custom_headers:
-        description: "自定义请求头 JSON 字符串（留空不设置；对应 ANTHROPIC_CUSTOM_HEADERS）"
+        description: "追加审查说明（可选）"
         type: string
         required: false
         default: ""
       require_review_md:
-        description: "是否要求当前仓库根目录存在 REVIEW.md"
+        description: "是否要求仓库根目录存在 REVIEW.md"
         type: boolean
         required: false
         default: true
-      pr_number:
-        description: "PR 编号；pull_request 事件可留空，workflow_dispatch 手动触发时必填"
+      anthropic_custom_headers:
+        description: "自定义请求头 JSON（ANTHROPIC_CUSTOM_HEADERS）"
         type: string
         required: false
         default: ""
@@ -66,15 +51,14 @@ on:
         required: false
 
 concurrency:
-  group: claude-pr-review-${{ github.event.pull_request.number || inputs.pr_number || github.run_id }}
+  group: claude-pr-review-${{ inputs.pr_number }}
   cancel-in-progress: true
 
 jobs:
   claude-review:
     runs-on: ubuntu-latest
     env:
-      # track_progress 仅支持 pull_request 等事件，手动 workflow_dispatch 必须关闭
-      TRACK_PROGRESS_ENABLED: ${{ inputs.track_progress && (github.event_name == 'pull_request' || github.event_name == 'issue_comment') }}
+      PR_NUMBER: ${{ inputs.pr_number }}
       CLAUDE_MODEL: ${{ inputs.model }}
     permissions:
       contents: read
@@ -83,20 +67,6 @@ jobs:
       id-token: write
 
     steps:
-      - name: Resolve pull request
-        id: pr
-        run: |
-          if [ -n "${{ github.event.pull_request.number }}" ]; then
-            PR_NUM="${{ github.event.pull_request.number }}"
-          elif [ -n "${{ inputs.pr_number }}" ]; then
-            PR_NUM="${{ inputs.pr_number }}"
-          else
-            echo "::error::需要 pull_request 事件，或在 workflow_dispatch 时传入 inputs.pr_number"
-            exit 1
-          fi
-          echo "number=$PR_NUM" >> "$GITHUB_OUTPUT"
-          echo "PR_NUMBER=$PR_NUM" >> "$GITHUB_ENV"
-
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
@@ -106,7 +76,6 @@ jobs:
         run: gh pr checkout "$PR_NUMBER"
         env:
           GH_TOKEN: ${{ github.token }}
-          PR_NUMBER: ${{ steps.pr.outputs.number }}
 
       - name: Configure Anthropic endpoint
         run: |
@@ -120,136 +89,55 @@ jobs:
           ANTHROPIC_BASE_URL_INPUT: ${{ secrets.ANTHROPIC_BASE_URL }}
           ANTHROPIC_CUSTOM_HEADERS_INPUT: ${{ inputs.anthropic_custom_headers }}
 
-      - name: Prepare PR diff for review
+      - name: Prepare PR diff
         run: |
           mkdir -p .github
           gh pr diff "$PR_NUMBER" > .github/claude-pr-diff.patch
           gh pr view "$PR_NUMBER" --json title,body,files,additions,deletions \
             > .github/claude-pr-meta.json
           echo "diff_lines=$(wc -l < .github/claude-pr-diff.patch | tr -d ' ')" >> "$GITHUB_ENV"
-          echo "已生成 .github/claude-pr-diff.patch ($(wc -l < .github/claude-pr-diff.patch) 行)"
         env:
           GH_TOKEN: ${{ github.token }}
-          PR_NUMBER: ${{ steps.pr.outputs.number }}
 
-      - name: Check review guidelines in repository
+      - name: Check REVIEW.md
         run: |
-          echo "当前仓库: ${{ github.repository }} (PR #${PR_NUMBER} 分支)"
           if [ -f "REVIEW.md" ]; then
             echo "已找到 REVIEW.md"
           elif [ "${{ inputs.require_review_md }}" = "true" ]; then
-            echo "::error::当前仓库根目录缺少 REVIEW.md，请在业务项目中添加（可从模板库复制示例）"
+            echo "::error::缺少 REVIEW.md，请在项目根目录添加"
             exit 1
           else
-            echo "::warning::未找到 REVIEW.md，将仅使用内置审查说明"
+            echo "::warning::未找到 REVIEW.md"
           fi
-          if [ -f "CLAUDE.md" ]; then
-            echo "已找到 CLAUDE.md"
-          else
-            echo "::warning::未找到 CLAUDE.md（可选）"
-          fi
-        env:
-          PR_NUMBER: ${{ steps.pr.outputs.number }}
-
-      - name: Claude code review (plugin)
-        if: inputs.use_code_review_plugin
-        uses: anthropics/claude-code-action@v1
-        with:
-          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
-          track_progress: ${{ env.TRACK_PROGRESS_ENABLED }}
-          plugin_marketplaces: "https://github.com/anthropics/claude-code.git"
-          plugins: "code-review@claude-code-plugins"
-          prompt: "/code-review:code-review ${{ github.repository }}/pull/${{ env.PR_NUMBER }}"
-          claude_args: |
-            --model ${{ env.CLAUDE_MODEL }}
-            --max-turns ${{ inputs.max_turns }}
-            --allowedTools "mcp__github_inline_comment__create_inline_comment,Bash(gh pr comment:*),Bash(gh pr diff:*),Bash(gh pr view:*)"
+          [ -f "CLAUDE.md" ] && echo "已找到 CLAUDE.md" || echo "CLAUDE.md 可选，未找到"
 
       - name: Claude code review
-        if: ${{ !inputs.use_code_review_plugin }}
         uses: anthropics/claude-code-action@v1
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
-          track_progress: ${{ env.TRACK_PROGRESS_ENABLED }}
+          track_progress: ${{ inputs.track_progress }}
           prompt: |
             REPO: ${{ github.repository }}
             PR NUMBER: ${{ env.PR_NUMBER }}
             DIFF_LINES: ${{ env.diff_lines }}
             POST_INLINE_COMMENTS: ${{ inputs.post_inline_comments }}
 
-            请审查本 Pull Request（金融业务）。在 **尽可能少的工具轮次内** 完成。
+            审查本 PR（金融业务）。**少轮次完成**，只审 `.github/claude-pr-diff.patch` 中的变更。
 
-            ## 必读（各读一次即可）
-            1. `.github/claude-pr-meta.json` — PR 元数据与变更文件列表
-            2. `.github/claude-pr-diff.patch` — **完整 diff，审查范围仅限此 diff 涉及逻辑**
-            3. 根目录 `REVIEW.md`（若存在）— Important/Nit 定义
-            4. 根目录 `CLAUDE.md`（若存在，可选）
+            必读一次：`.github/claude-pr-meta.json`、`.github/claude-pr-diff.patch`、根目录 `REVIEW.md`（若有）、`CLAUDE.md`（若有）。
+            禁止全库扫描、重复 gh 命令、写任何结果 JSON 文件。
 
-            禁止：全仓库搜索、逐个打开与 diff 无关的文件、重复执行 gh pr diff/view。
-
-            ## 输出（按顺序，控制轮数）
-            1. **先** Write `.github/claude-review-result.json`（见下方格式）
-            2. **再** 一条 `gh pr comment` 总结（含 Important/Nit 数量与要点列表）
-            3. inline comment：仅当 POST_INLINE_COMMENTS 为 true 时，且 **最多 8 条**、仅 Important、必须有行号
-
-            Important 优先；Nit 最多 5 条；无问题时也要写 JSON 与总结。
-
-            `.github/claude-review-result.json` 格式：
-
-            文件格式（严格遵守，仅 JSON，无 markdown 包裹）：
-            {
-              "status": "pass",
-              "blocking_issues": 0,
-              "summary": "Important: 0，Nit: 0。无阻塞项。"
-            }
-
-            规则（与 REVIEW.md 一致）：
-            - status 只能是 "pass" 或 "fail"
-            - 任一 REVIEW.md 定义的 Important 问题 → status 为 "fail"，blocking_issues 为 Important 条数
-            - 仅有 Nit → status 为 "pass"，blocking_issues 为 0
-            - summary 首句须包含 Important / Nit 数量
+            ## 输出
+            1. 一条 `gh pr comment` 总结，首行格式：`Important: N，Nit: M`（无 Important 时写「无阻塞项」）
+            2. 按 REVIEW.md 区分 Important / Nit；Nit 最多 5 条
+            3. inline comment：仅当 POST_INLINE_COMMENTS 为 true，且最多 8 条 Important
 
             ${{ inputs.extra_review_instructions }}
           claude_args: |
             --model ${{ env.CLAUDE_MODEL }}
             --max-turns ${{ inputs.max_turns }}
-            --allowedTools "${{ inputs.post_inline_comments && 'mcp__github_inline_comment__create_inline_comment,' || '' }}Bash(gh pr comment:*),Read,Write"
-
-      - name: Enforce review gate
-        if: inputs.fail_on_blocking && !inputs.use_code_review_plugin
-        run: |
-          RESULT_FILE=".github/claude-review-result.json"
-          if [ ! -f "$RESULT_FILE" ]; then
-            echo "::error::Claude 未生成审查结果文件，视为未通过"
-            exit 1
-          fi
-          STATUS=$(jq -r '.status' "$RESULT_FILE")
-          BLOCKING=$(jq -r '.blocking_issues // 0' "$RESULT_FILE")
-          SUMMARY=$(jq -r '.summary // ""' "$RESULT_FILE")
-          echo "status=$STATUS, blocking_issues=$BLOCKING"
-          echo "summary=$SUMMARY"
-          jq . "$RESULT_FILE"
-          if [ "$STATUS" != "pass" ] || [ "$BLOCKING" -gt 0 ]; then
-            echo "::error::Claude review 未通过，请修复 blocking 问题后再合并"
-            exit 1
-          fi
-          echo "Claude review passed"
-
-      - name: Enforce review gate (plugin mode)
-        if: inputs.fail_on_blocking && inputs.use_code_review_plugin
-        run: |
-          echo "::warning::plugin 模式未写入 claude-review-result.json，仅检查 workflow 是否成功完成"
-          echo "若需严格合并门槛，请使用默认自定义 prompt 模式（use_code_review_plugin: false）"
+            --allowedTools "${{ inputs.post_inline_comments && 'mcp__github_inline_comment__create_inline_comment,' || '' }}Bash(gh pr comment:*),Read"
 
       - name: Summary
         if: always()
-        run: |
-          echo "## Claude PR Review" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          if [ -f ".github/claude-review-result.json" ]; then
-            echo '```json' >> $GITHUB_STEP_SUMMARY
-            cat .github/claude-review-result.json >> $GITHUB_STEP_SUMMARY
-            echo '```' >> $GITHUB_STEP_SUMMARY
-          else
-            echo "审查已完成（plugin 模式或未生成结果 JSON）。" >> $GITHUB_STEP_SUMMARY
-          fi
+        run: echo "Claude PR #${PR_NUMBER} 审查流程已结束，请查看 PR 评论。" >> $GITHUB_STEP_SUMMARY

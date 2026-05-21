@@ -1,34 +1,22 @@
-# 复制到业务仓库 .github/workflows/ 下使用
+# 复制到业务仓库 .github/workflows/pr-claude-review.yml
 #
-# 前置条件：
-# 1. 业务仓库 Settings → Secrets → ANTHROPIC_API_KEY（可选 ANTHROPIC_BASE_URL）
-# 2. 安装 Claude GitHub App: https://github.com/apps/claude
-# 3. 在本项目根目录提交 REVIEW.md（必需）、CLAUDE.md（可选）
-#
-# 合并门槛说明（GitHub 免费版私有库）：
-# - 私有库「必须通过指定检查」通常需 GitHub Pro；免费版无法靠分支保护强制挡合并
-# - 可改用：PR 自动跑审查 + 人工看 Checks/评论；或仅用手动 workflow_dispatch（省额度）
+# 在 PR 对话中评论 /review 或 /review 补充说明 即可触发审查
 
 name: PR Claude Review
 
 on:
-  # 方式 A：PR 打开/更新时自动审查（可注释掉以仅手动触发）
-  pull_request:
-    types: [opened, synchronize, reopened, ready_for_review]
-
-  # 方式 B：PR 评论 /review 触发 → 使用 examples/claude-pr-review-on-comment.yml（单独文件）
-
-  # 方式 C：Actions 页手动 Run workflow，填写 PR 编号
-  workflow_dispatch:
-    inputs:
-      pr_number:
-        description: "要审查的 Pull Request 编号"
-        required: true
-        type: number
+  issue_comment:
+    types: [created]
 
 jobs:
   claude-review:
-    # 调用可复用 workflow 时必须在 caller job 声明权限（否则会报 permissions none）
+    if: |
+      github.event.issue.pull_request &&
+      github.event.comment.user.type != 'Bot' &&
+      (
+        github.event.comment.body == '/review' ||
+        startsWith(github.event.comment.body, '/review ')
+      )
     permissions:
       contents: read
       pull-requests: write
@@ -39,14 +27,8 @@ jobs:
       ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
       # ANTHROPIC_BASE_URL: ${{ secrets.ANTHROPIC_BASE_URL }}
     with:
-      pr_number: ${{ github.event.pull_request.number || inputs.pr_number }}
-      # 必填改为你家 API/代理实际支持的模型 ID（403 多为模型无权限）
+      pr_number: ${{ github.event.issue.number }}
       model: claude-sonnet-4-6
-    # with:
-    #   max_turns: 60
-    #   post_inline_comments: false
-    #   track_progress: true
-    #   fail_on_blocking: false   # 免费版无法强制挡合并时可设为 false，仅作参考审查
-    #   use_code_review_plugin: false
-    #   extra_review_instructions: |
-    #     本项目为 Java 服务，重点关注空指针与事务边界。
+      max_turns: 50
+      post_inline_comments: false
+      track_progress: true
