@@ -10,10 +10,10 @@ on:
   workflow_call:
     inputs:
       max_turns:
-        description: "Claude Code 最大对话轮数"
+        description: "Claude Code 最大对话轮数（大型 PR 可调到 40～50）"
         type: number
         required: false
-        default: 15
+        default: 30
       track_progress:
         description: "是否在 PR 上显示审查进度评论（仅 pull_request 等事件有效；workflow_dispatch 会自动关闭）"
         type: boolean
@@ -238,8 +238,15 @@ jobs:
             （默认由模板库注入；若业务仓库自有同名文件则已覆盖为业务版本。）
             关注：资金/账务正确性、鉴权与越权、敏感数据、注入与 SSRF、审计追溯、幂等与并发。
 
-            PR 分支已在当前工作目录 checkout；可用 Read 工具读取 REVIEW.md、CLAUDE.md。
-            用 inline comment 标注具体代码问题，用 `gh pr comment` 写总结。
+            PR 分支已在当前工作目录 checkout。
+
+            效率要求（避免超过 max_turns）：
+            - 用 `gh pr diff` / `gh pr view` 聚焦本 PR 变更，不要全仓库扫描
+            - REVIEW.md、CLAUDE.md 各 Read 一次即可
+            - Important 问题优先；Nit 最多 5 条（与 REVIEW.md 一致）
+            - 完成审查后尽快 Write 结果 JSON，不要重复调用同一工具
+
+            用 inline comment 标注 Important 的具体代码问题，用 `gh pr comment` 写总结。
 
             审查结束后，必须用 Write 工具创建文件：
             `.github/claude-review-result.json`

@@ -39,7 +39,7 @@ jobs:
     with:
       pr_number: ${{ github.event.pull_request.number || inputs.pr_number }}
     # with:
-    #   max_turns: 15
+    #   max_turns: 40
     #   track_progress: true
     #   fail_on_blocking: false   # 免费版无法强制挡合并时可设为 false，仅作参考审查
     #   use_code_review_plugin: false

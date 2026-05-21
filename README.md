@@ -72,7 +72,7 @@ jobs:
 
 | input | 默认 | 说明 |
 |-------|------|------|
-| `max_turns` | `15` | Claude 最大对话轮数 |
+| `max_turns` | `30` | Claude 最大对话轮数；超大 PR 可设 `40`～`50` |
 | `track_progress` | `true` | PR 上显示审查进度（`workflow_dispatch` 下自动关闭） |
 | `fail_on_blocking` | `true` | blocking 问题时 job 失败 |
 | `use_code_review_plugin` | `false` | 使用官方 code-review 插件（无 JSON gate） |
@@ -137,3 +137,4 @@ jobs:
 
 - 默认模式会要求 Claude 写入 `.github/claude-review-result.json`，并由 gate 步骤解析；**推荐用于合并门槛**。
 - `use_code_review_plugin: true` 时使用官方插件，评论更丰富，但**不会**根据 JSON 自动 fail job；仅适合“只评论、不挡合并”的场景。
+- 若报错 `Reached maximum number of turns`，在 caller 的 `with` 中增大 `max_turns`（如 `50`），或缩小 PR 变更范围。
