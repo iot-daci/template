@@ -119,13 +119,19 @@ jobs:
 | [REVIEW.md](REVIEW.md) | **PR 审查专用**，定义 Important/Nit、必查项；优先级最高 |
 | [CLAUDE.md](CLAUDE.md) | 通用项目规范 |
 
-**无需在业务仓库复制**：`load_template_guidelines: true`（默认）时，workflow 会根据 `uses: YOUR_ORG/template/...@ref` 自动从模板库拉取上述文件到 runner，再交给 Claude 阅读。
+**默认从模板库拉取**（`load_template_guidelines: true`）：通过 `raw.githubusercontent.com` 下载（**公开模板库无需 PAT**）。
 
-- 业务仓库**已有**根目录 `REVIEW.md` / `CLAUDE.md` → **以业务仓库为准**（覆盖模板）
-- 业务仓库**没有** → 使用模板库当前 ref 上的默认版本
-- 仅某项目要定制 → 在该业务仓提交自己的 `REVIEW.md` 即可
+- 业务仓**已有**根目录 `REVIEW.md` / `CLAUDE.md` → **以业务仓为准**
+- 业务仓**没有** → 使用 `uses: org/template@ref` 中 **@ 后面的 ref**（如 `@main`）上的文件
 
-同组织私有库需保证 `GITHUB_TOKEN` 能读模板库（通常可复用 workflow 所在模板仓权限）；跨组织时可设 `load_template_guidelines: false` 并在业务仓自备规范文件。
+公开库 `iot-daci/template` 可直接访问，例如：
+`https://raw.githubusercontent.com/iot-daci/template/main/REVIEW.md`
+
+若仍拉取失败，请检查：
+
+1. `REVIEW.md` / `CLAUDE.md` 是否已 **push 到 main**（与 `uses: ...@main` 一致）
+2. caller 的 `uses` ref 是否与文件所在分支一致（用 `@main` 不要用尚未包含这两份文件的分支/tag）
+3. 在 Actions 日志中查看 **Fetch template** 步骤打印的 raw URL 是否浏览器可打开
 
 ### 说明
 

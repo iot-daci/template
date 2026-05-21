@@ -153,15 +153,45 @@ jobs:
 
       - name: Fetch template REVIEW.md and CLAUDE.md
         if: inputs.load_template_guidelines && steps.template.outputs.skip != 'true'
-        uses: actions/checkout@v4
-        with:
-          repository: ${{ steps.template.outputs.repository }}
-          ref: ${{ steps.template.outputs.ref }}
-          path: _claude-template-guidelines
-          sparse-checkout: |
-            REVIEW.md
-            CLAUDE.md
-          sparse-checkout-cone-mode: true
+        run: |
+          mkdir -p _claude-template-guidelines
+          REPO="${{ steps.template.outputs.repository }}"
+          REF="${{ steps.template.outputs.ref }}"
+          REF_PATH="${REF#refs/heads/}"
+          REF_PATH="${REF_PATH#refs/tags/}"
+
+          fetch_file() {
+            local file="$1"
+            local dest="_claude-template-guidelines/${file}"
+            local raw_url="https://raw.githubusercontent.com/${REPO}/${REF_PATH}/${file}"
+
+            echo "拉取 ${file} ← ${raw_url}"
+            if curl -fsSL "${raw_url}" -o "${dest}" && [ -s "${dest}" ]; then
+              echo "已从 raw 拉取: ${file}"
+              return 0
+            fi
+            echo "raw 失败，尝试 GitHub API: repos/${REPO}/contents/${file}?ref=${REF}"
+            if gh api -H "Accept: application/vnd.github.raw" \
+              "repos/${REPO}/contents/${file}?ref=${REF}" > "${dest}" 2>/dev/null && [ -s "${dest}" ]; then
+              echo "已从 GitHub API 拉取: ${file}"
+              return 0
+            fi
+            rm -f "${dest}"
+            return 1
+          }
+
+          MISSING=""
+          for f in REVIEW.md CLAUDE.md; do
+            fetch_file "$f" || MISSING="${MISSING} ${f}"
+          done
+          if [ -n "${MISSING}" ]; then
+            echo "::error::未能从模板库 ${REPO}@${REF} 拉取:${MISSING}"
+            echo "::error::公开库请确认：① REVIEW.md/CLAUDE.md 已推到该 ref ② uses 的 @ref 与文件分支一致（如 @main）"
+            echo "可手动验证: https://raw.githubusercontent.com/${REPO}/${REF_PATH}/REVIEW.md"
+            exit 1
+          fi
+        env:
+          GH_TOKEN: ${{ github.token }}
 
       - name: Apply review guidelines
         if: inputs.load_template_guidelines
@@ -171,9 +201,10 @@ jobs:
               echo "使用业务仓库: $f"
             elif [ -f "_claude-template-guidelines/$f" ]; then
               cp "_claude-template-guidelines/$f" "$f"
-              echo "使用模板库默认: $f"
+              echo "使用模板库: $f"
             else
-              echo "::warning::未找到 $f（业务仓库与模板库均无）"
+              echo "::error::未找到 $f"
+              exit 1
             fi
           done
 
