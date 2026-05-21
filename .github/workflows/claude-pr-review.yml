@@ -44,21 +44,11 @@ on:
         type: string
         required: false
         default: ""
-      load_template_guidelines:
-        description: "是否从本模板库拉取 REVIEW.md / CLAUDE.md（业务仓库已有文件时优先用业务版本）"
+      require_review_md:
+        description: "是否要求当前仓库根目录存在 REVIEW.md"
         type: boolean
         required: false
         default: true
-      template_repository:
-        description: "模板库 owner/repo（留空则从 uses 的 workflow_ref 自动解析）"
-        type: string
-        required: false
-        default: ""
-      template_ref:
-        description: "模板库 git ref（留空则使用 uses 引用的 ref，如 refs/heads/main）"
-        type: string
-        required: false
-        default: ""
       pr_number:
         description: "PR 编号；pull_request 事件可留空，workflow_dispatch 手动触发时必填"
         type: string
@@ -125,89 +115,24 @@ jobs:
           ANTHROPIC_BASE_URL_INPUT: ${{ secrets.ANTHROPIC_BASE_URL }}
           ANTHROPIC_CUSTOM_HEADERS_INPUT: ${{ inputs.anthropic_custom_headers }}
 
-      - name: Resolve template repository
-        id: template
-        if: inputs.load_template_guidelines
+      - name: Check review guidelines in repository
         run: |
-          WF_REF="${{ github.workflow_ref }}"
-          if [ -n "${{ inputs.template_repository }}" ]; then
-            REPO="${{ inputs.template_repository }}"
-          else
-            REPO="${WF_REF%%/.github/*}"
-          fi
-          if [ -z "$REPO" ] || { [ -z "${{ inputs.template_repository }}" ] && [ "$REPO" = "$WF_REF" ]; }; then
-            echo "::warning::无法解析模板库地址，跳过注入 REVIEW.md/CLAUDE.md"
-            echo "skip=true" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          if [ -n "${{ inputs.template_ref }}" ]; then
-            REF="${{ inputs.template_ref }}"
-          elif [[ "$WF_REF" == *@* ]]; then
-            REF="${WF_REF#*@}"
-          else
-            REF="main"
-          fi
-          echo "repository=$REPO" >> "$GITHUB_OUTPUT"
-          echo "ref=$REF" >> "$GITHUB_OUTPUT"
-          echo "skip=false" >> "$GITHUB_OUTPUT"
-          echo "Template guidelines: $REPO@$REF"
-
-      - name: Fetch template REVIEW.md and CLAUDE.md
-        if: inputs.load_template_guidelines && steps.template.outputs.skip != 'true'
-        run: |
-          mkdir -p _claude-template-guidelines
-          REPO="${{ steps.template.outputs.repository }}"
-          REF="${{ steps.template.outputs.ref }}"
-          REF_PATH="${REF#refs/heads/}"
-          REF_PATH="${REF_PATH#refs/tags/}"
-
-          fetch_file() {
-            local file="$1"
-            local dest="_claude-template-guidelines/${file}"
-            local raw_url="https://raw.githubusercontent.com/${REPO}/${REF_PATH}/${file}"
-
-            echo "拉取 ${file} ← ${raw_url}"
-            if curl -fsSL "${raw_url}" -o "${dest}" && [ -s "${dest}" ]; then
-              echo "已从 raw 拉取: ${file}"
-              return 0
-            fi
-            echo "raw 失败，尝试 GitHub API: repos/${REPO}/contents/${file}?ref=${REF}"
-            if gh api -H "Accept: application/vnd.github.raw" \
-              "repos/${REPO}/contents/${file}?ref=${REF}" > "${dest}" 2>/dev/null && [ -s "${dest}" ]; then
-              echo "已从 GitHub API 拉取: ${file}"
-              return 0
-            fi
-            rm -f "${dest}"
-            return 1
-          }
-
-          MISSING=""
-          for f in REVIEW.md CLAUDE.md; do
-            fetch_file "$f" || MISSING="${MISSING} ${f}"
-          done
-          if [ -n "${MISSING}" ]; then
-            echo "::error::未能从模板库 ${REPO}@${REF} 拉取:${MISSING}"
-            echo "::error::公开库请确认：① REVIEW.md/CLAUDE.md 已推到该 ref ② uses 的 @ref 与文件分支一致（如 @main）"
-            echo "可手动验证: https://raw.githubusercontent.com/${REPO}/${REF_PATH}/REVIEW.md"
+          echo "当前仓库: ${{ github.repository }} (PR #${PR_NUMBER} 分支)"
+          if [ -f "REVIEW.md" ]; then
+            echo "已找到 REVIEW.md"
+          elif [ "${{ inputs.require_review_md }}" = "true" ]; then
+            echo "::error::当前仓库根目录缺少 REVIEW.md，请在业务项目中添加（可从模板库复制示例）"
             exit 1
+          else
+            echo "::warning::未找到 REVIEW.md，将仅使用内置审查说明"
+          fi
+          if [ -f "CLAUDE.md" ]; then
+            echo "已找到 CLAUDE.md"
+          else
+            echo "::warning::未找到 CLAUDE.md（可选）"
           fi
         env:
-          GH_TOKEN: ${{ github.token }}
-
-      - name: Apply review guidelines
-        if: inputs.load_template_guidelines
-        run: |
-          for f in REVIEW.md CLAUDE.md; do
-            if [ -f "$f" ]; then
-              echo "使用业务仓库: $f"
-            elif [ -f "_claude-template-guidelines/$f" ]; then
-              cp "_claude-template-guidelines/$f" "$f"
-              echo "使用模板库: $f"
-            else
-              echo "::error::未找到 $f"
-              exit 1
-            fi
-          done
+          PR_NUMBER: ${{ steps.pr.outputs.number }}
 
       - name: Claude code review (plugin)
         if: inputs.use_code_review_plugin
@@ -235,8 +160,7 @@ jobs:
 
             请审查本 Pull Request。本项目为金融业务，安全与资金正确性要求极高。
 
-            必须先阅读工作区根目录的 REVIEW.md（审查专用，优先级最高），其次参考 CLAUDE.md。
-            （默认由模板库注入；若业务仓库自有同名文件则已覆盖为业务版本。）
+            必须先阅读本仓库（当前 PR 分支）根目录的 REVIEW.md（若存在，审查专用、优先级最高），其次参考 CLAUDE.md（若存在）。
             关注：资金/账务正确性、鉴权与越权、敏感数据、注入与 SSRF、审计追溯、幂等与并发。
 
             PR 分支已在当前工作目录 checkout。

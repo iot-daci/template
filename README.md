@@ -81,9 +81,7 @@ jobs:
 | `model` | `claude-sonnet-4-6` | **务必**与令牌/代理可用模型一致；403 时在 caller 中覆盖 |
 | `extra_review_instructions` | 空 | 追加审查说明 |
 | `anthropic_custom_headers` | 空 | 自定义请求头 JSON（设置 `ANTHROPIC_CUSTOM_HEADERS`） |
-| `load_template_guidelines` | `true` | 从模板库拉取 `REVIEW.md` / `CLAUDE.md` |
-| `template_repository` | 空 | 模板库 `owner/repo`（空则自动从 `uses` 解析） |
-| `template_ref` | 空 | 模板库 ref（空则与 `uses` 的 `@ref` 一致） |
+| `require_review_md` | `true` | 是否要求当前业务仓库根目录存在 `REVIEW.md` |
 
 | secret | 必填 | 说明 |
 |--------|------|------|
@@ -116,24 +114,19 @@ jobs:
 
 ### 审查规范（金融）
 
-| 文件 | 用途 |
-|------|------|
-| [REVIEW.md](REVIEW.md) | **PR 审查专用**，定义 Important/Nit、必查项；优先级最高 |
-| [CLAUDE.md](CLAUDE.md) | 通用项目规范 |
+| 文件 | 位置 | 说明 |
+|------|------|------|
+| [REVIEW.md](REVIEW.md) | **业务仓库根目录** | PR 审查专用，Important/Nit；**必需**（可复制模板库示例再改） |
+| [CLAUDE.md](CLAUDE.md) | **业务仓库根目录** | 通用规范，**可选** |
 
-**默认从模板库拉取**（`load_template_guidelines: true`）：通过 `raw.githubusercontent.com` 下载（**公开模板库无需 PAT**）。
+Workflow 只读取**当前被审查项目**（PR 分支 checkout 后的仓库），**不会**从 `uses: org/vcard@main` 的 workflow 所在仓拉取规范。
 
-- 业务仓**已有**根目录 `REVIEW.md` / `CLAUDE.md` → **以业务仓为准**
-- 业务仓**没有** → 使用 `uses: org/template@ref` 中 **@ 后面的 ref**（如 `@main`）上的文件
+在 `vbiz-forge/vcard` 等业务项目中：
 
-公开库 `iot-daci/template` 可直接访问，例如：
-`https://raw.githubusercontent.com/iot-daci/template/main/REVIEW.md`
+1. 将 `REVIEW.md`（及可选 `CLAUDE.md`）放在**项目根目录**并提交到 PR 分支  
+2. 可从本模板库 [REVIEW.md](REVIEW.md) / [CLAUDE.md](CLAUDE.md) 复制后按项目修改  
 
-若仍拉取失败，请检查：
-
-1. `REVIEW.md` / `CLAUDE.md` 是否已 **push 到 main**（与 `uses: ...@main` 一致）
-2. caller 的 `uses` ref 是否与文件所在分支一致（用 `@main` 不要用尚未包含这两份文件的分支/tag）
-3. 在 Actions 日志中查看 **Fetch template** 步骤打印的 raw URL 是否浏览器可打开
+若暂时不需要 `REVIEW.md` 也可设 `require_review_md: false`（不推荐金融项目）。
 
 ### 说明
 

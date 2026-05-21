@@ -3,7 +3,7 @@
 # 前置条件：
 # 1. 业务仓库 Settings → Secrets → ANTHROPIC_API_KEY（可选 ANTHROPIC_BASE_URL）
 # 2. 安装 Claude GitHub App: https://github.com/apps/claude
-# 3. REVIEW.md / CLAUDE.md 默认从 template 库自动注入（业务仓有同名文件则优先用业务仓）
+# 3. 在本项目根目录提交 REVIEW.md（必需）、CLAUDE.md（可选）
 #
 # 合并门槛说明（GitHub 免费版私有库）：
 # - 私有库「必须通过指定检查」通常需 GitHub Pro；免费版无法靠分支保护强制挡合并
