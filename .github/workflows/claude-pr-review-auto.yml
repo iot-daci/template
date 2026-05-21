@@ -1,0 +1,141 @@
+# 可复用 workflow，由业务仓 issue_comment（/review）触发。
+# 与 claude-pr-review.yml 区别：不预先生成 diff 文件，由 Claude 自行通过 gh 拉取 PR 元信息与 diff。
+# caller job 须声明 permissions: contents:read, pull-requests:write, issues:write, id-token:write
+name: Claude PR Review (Auto Diff)
+
+on:
+  workflow_call:
+    inputs:
+      pr_number:
+        description: "Pull Request 编号（/review 触发时传 github.event.issue.number）"
+        type: string
+        required: true
+      model:
+        description: "Claude 模型 ID（须与 API/代理令牌权限一致）"
+        type: string
+        required: false
+        default: "claude-sonnet-4-6"
+      max_turns:
+        description: "最大对话轮数"
+        type: number
+        required: false
+        default: 50
+      post_inline_comments:
+        description: "是否在 diff 行发 inline comment（大 PR 建议 false）"
+        type: boolean
+        required: false
+        default: false
+      track_progress:
+        description: "是否在 PR 上显示审查进度评论"
+        type: boolean
+        required: false
+        default: true
+      extra_review_instructions:
+        description: "追加审查说明（可选）"
+        type: string
+        required: false
+        default: ""
+      require_review_md:
+        description: "是否要求仓库根目录存在 REVIEW.md"
+        type: boolean
+        required: false
+        default: true
+      anthropic_custom_headers:
+        description: "自定义请求头 JSON（ANTHROPIC_CUSTOM_HEADERS）"
+        type: string
+        required: false
+        default: ""
+    secrets:
+      ANTHROPIC_API_KEY:
+        required: true
+      ANTHROPIC_BASE_URL:
+        required: false
+
+concurrency:
+  group: claude-pr-review-auto-${{ inputs.pr_number }}
+  cancel-in-progress: true
+
+jobs:
+  claude-review:
+    runs-on: ubuntu-latest
+    env:
+      PR_NUMBER: ${{ inputs.pr_number }}
+      CLAUDE_MODEL: ${{ inputs.model }}
+    permissions:
+      contents: read
+      pull-requests: write
+      issues: write
+      id-token: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Checkout PR branch
+        run: gh pr checkout "$PR_NUMBER"
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+      - name: Configure Anthropic endpoint
+        run: |
+          if [ -n "$ANTHROPIC_BASE_URL_INPUT" ]; then
+            echo "ANTHROPIC_BASE_URL=$ANTHROPIC_BASE_URL_INPUT" >> "$GITHUB_ENV"
+          fi
+          if [ -n "$ANTHROPIC_CUSTOM_HEADERS_INPUT" ]; then
+            echo "ANTHROPIC_CUSTOM_HEADERS=$ANTHROPIC_CUSTOM_HEADERS_INPUT" >> "$GITHUB_ENV"
+          fi
+        env:
+          ANTHROPIC_BASE_URL_INPUT: ${{ secrets.ANTHROPIC_BASE_URL }}
+          ANTHROPIC_CUSTOM_HEADERS_INPUT: ${{ inputs.anthropic_custom_headers }}
+
+      - name: Check REVIEW.md
+        run: |
+          if [ -f "REVIEW.md" ]; then
+            echo "已找到 REVIEW.md"
+          elif [ "${{ inputs.require_review_md }}" = "true" ]; then
+            echo "::error::缺少 REVIEW.md，请在项目根目录添加"
+            exit 1
+          else
+            echo "::warning::未找到 REVIEW.md"
+          fi
+          [ -f "CLAUDE.md" ] && echo "已找到 CLAUDE.md" || echo "CLAUDE.md 可选，未找到"
+
+      - name: Claude code review
+        uses: anthropics/claude-code-action@v1
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          track_progress: ${{ inputs.track_progress }}
+          prompt: |
+            REPO: ${{ github.repository }}
+            PR NUMBER: ${{ env.PR_NUMBER }}
+            POST_INLINE_COMMENTS: ${{ inputs.post_inline_comments }}
+
+            审查本 PR（金融业务）。**少轮次完成**，只审本 PR 的变更。
+
+            执行步骤（每条命令仅运行一次，结果保留在上下文中）：
+            1. `gh pr view ${{ env.PR_NUMBER }} --json title,body,files,additions,deletions` 取 PR 元信息
+            2. `gh pr diff ${{ env.PR_NUMBER }}` 取 diff
+            3. 读根目录 `REVIEW.md`（若有）、`CLAUDE.md`（若有）
+            4. 仅基于上面 diff 输出审查结论；禁止全库扫描、禁止重复 gh 命令、禁止写任何结果 JSON 文件
+
+            ## 输出
+            1. 一条 `gh pr comment` 总结，首行格式：`Important: N，Nit: M`（无 Important 时写「无阻塞项」）
+            2. 按 REVIEW.md 区分 Important / Nit；Nit 最多 5 条
+            3. inline comment：仅当 POST_INLINE_COMMENTS 为 true，且最多 8 条 Important
+
+            ${{ inputs.extra_review_instructions }}
+          claude_args: |
+            --model ${{ env.CLAUDE_MODEL }}
+            --max-turns ${{ inputs.max_turns }}
+            --allowedTools "${{ inputs.post_inline_comments && 'mcp__github_inline_comment__create_inline_comment,' || '' }}Bash(gh pr comment:*),Bash(gh pr view:*),Bash(gh pr diff:*),Read"
+
+      - name: Summary
+        if: always()
+        run: |
+          {
+            echo "## Claude PR Review (Auto Diff)"
+            echo ""
+            echo "PR ${PR_NUMBER} 审查已结束，请查看 PR 评论。"
+          } >> "${GITHUB_STEP_SUMMARY}"

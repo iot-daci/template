@@ -13,18 +13,28 @@ GitHub Actions 可复用 workflow 模板库。业务仓库通过 `workflow_call`
 | `cpp.yml` | C++ 构建 |
 | `artifact-zip.yml` | 产物打包 |
 | `auto-sync-features.yml` | 多 feature 分支合并到 dev |
-| **`claude-pr-review.yml`** | **PR Code Review（Claude，/review 触发）** |
+| **`claude-pr-review.yml`** | **PR Code Review（Claude，/review 触发，预先生成 diff 文件）** |
+| **`claude-pr-review-auto.yml`** | **PR Code Review（Claude，/review 触发，由 Claude 自行通过 gh 拉取 diff）** |
 
 ## Claude PR Review
 
 基于 [anthropics/claude-code-action@v1](https://github.com/anthropics/claude-code-action)，在 PR 中评论 **`/review`** 触发审查，结果以 **PR 评论** 呈现（不写 `claude-review-result.json`）。
+
+提供两种模板，按需选择：
+
+| 模板 | 说明 | 适用 |
+|------|------|------|
+| `claude-pr-review.yml` | workflow step 中预先 `gh pr diff` 写入 `.github/claude-pr-diff.patch`，Claude 直接读文件 | diff 较大或希望减少 Claude 调用 `gh` 的轮数 |
+| `claude-pr-review-auto.yml` | 不预先生成 diff，Claude 在容器内自行通过 `gh pr view` / `gh pr diff` 拉取 | 流程更简洁，无中间文件；小到中等 PR 推荐 |
 
 ### 业务仓库接入
 
 1. 安装 [Claude GitHub App](https://github.com/apps/claude)
 2. Secret：`ANTHROPIC_API_KEY`（代理场景可加 `ANTHROPIC_BASE_URL`）
 3. 项目根目录添加 `REVIEW.md`（可从本库 [REVIEW.md](REVIEW.md) 复制）
-4. 复制 [examples/claude-pr-review-caller.yml](examples/claude-pr-review-caller.yml) 到业务仓 `.github/workflows/pr-claude-review.yml`
+4. 复制其中一个 caller 到业务仓 `.github/workflows/pr-claude-review.yml`：
+   - [examples/claude-pr-review-caller.yml](examples/claude-pr-review-caller.yml)（预生成 diff 版）
+   - [examples/claude-pr-review-auto-caller.yml](examples/claude-pr-review-auto-caller.yml)（自动拉取 diff 版）
 
 ```yaml
 on:

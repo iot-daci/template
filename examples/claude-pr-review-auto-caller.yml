@@ -1,0 +1,35 @@
+# 复制到业务仓库 .github/workflows/pr-claude-review.yml
+#
+# 使用 claude-pr-review-auto.yml：不预先生成 diff，Claude 自行用 gh 拉取
+# 在 PR 对话中评论 /review 或 /review 补充说明 即可触发审查
+
+name: PR Claude Review
+
+on:
+  issue_comment:
+    types: [created]
+
+jobs:
+  claude-review:
+    if: |
+      github.event.issue.pull_request &&
+      github.event.comment.user.type != 'Bot' &&
+      (
+        github.event.comment.body == '/review' ||
+        startsWith(github.event.comment.body, '/review ')
+      )
+    permissions:
+      contents: read
+      pull-requests: write
+      issues: write
+      id-token: write
+    uses: YOUR_ORG/template/.github/workflows/claude-pr-review-auto.yml@main
+    secrets:
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      # ANTHROPIC_BASE_URL: ${{ secrets.ANTHROPIC_BASE_URL }}
+    with:
+      pr_number: ${{ github.event.issue.number }}
+      model: claude-sonnet-4-6
+      max_turns: 50
+      post_inline_comments: false
+      track_progress: true
