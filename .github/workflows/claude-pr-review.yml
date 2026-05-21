@@ -74,7 +74,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       # track_progress 仅支持 pull_request 等事件，手动 workflow_dispatch 必须关闭
-      TRACK_PROGRESS_ENABLED: ${{ inputs.track_progress && github.event_name == 'pull_request' }}
+      TRACK_PROGRESS_ENABLED: ${{ inputs.track_progress && (github.event_name == 'pull_request' || github.event_name == 'issue_comment') }}
       CLAUDE_MODEL: ${{ inputs.model }}
     permissions:
       contents: read

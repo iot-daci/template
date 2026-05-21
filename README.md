@@ -64,11 +64,41 @@ jobs:
 | **CODEOWNERS** | 要求指定人 approve（与 Claude 审查互补，不依赖 status check） |
 | **PR 标签** | 审查通过后由维护者打 `review-passed` 标签再合并（可配合自动评论里的 summary） |
 
-手动触发示例（caller 已包含 `workflow_dispatch`）：
+手动触发有三种方式：
 
-1. 打开业务仓 **Actions** → **PR Claude Review** → **Run workflow**
-2. 填写 **pr_number**（如 `42`）
-3. 在 PR 的 **Checks** / **Conversation** 查看结果；`fail_on_blocking: true` 时失败会在 Actions 显示红叉，但免费私有库仍可能允许合并，需团队自觉遵守。
+| 方式 | 做法 |
+|------|------|
+| **PR 评论 `/review`** | 复制 [examples/claude-pr-review-on-comment.yml](examples/claude-pr-review-on-comment.yml) 到业务仓，在 PR 对话里评论 `/review` |
+| **Actions 手动 Run** | 见 [examples/claude-pr-review-caller.yml](examples/claude-pr-review-caller.yml) 的 `workflow_dispatch` |
+| **PR 自动** | 同上 caller 的 `pull_request` 触发（可关掉，只留 `/review`） |
+
+`/review` 示例 workflow：
+
+```yaml
+on:
+  issue_comment:
+    types: [created]
+
+jobs:
+  claude-review:
+    if: |
+      github.event.issue.pull_request &&
+      github.event.comment.user.type != 'Bot' &&
+      (github.event.comment.body == '/review' || startsWith(github.event.comment.body, '/review '))
+    permissions:
+      contents: read
+      pull-requests: write
+      issues: write
+      id-token: write
+    uses: YOUR_ORG/template/.github/workflows/claude-pr-review.yml@main
+    secrets:
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+    with:
+      pr_number: ${{ github.event.issue.number }}
+      model: claude-sonnet-4-6
+```
+
+评论 `/review` 或 `/review 请重点看支付模块` 均可触发；仅匹配以 `/review` 开头的评论，避免误触。
 
 ### 可选参数
 
