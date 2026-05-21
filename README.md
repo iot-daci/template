@@ -42,6 +42,8 @@ jobs:
     uses: YOUR_ORG/template/.github/workflows/claude-pr-review.yml@main
     secrets:
       ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+    with:
+      model: claude-sonnet-4-6   # 改成你的 API/代理支持的模型 ID
 ```
 
 将 `YOUR_ORG/template` 替换为本模板库的实际 `owner/repo`（例如 `iot-daci/template`）。
@@ -76,7 +78,7 @@ jobs:
 | `track_progress` | `true` | PR 上显示审查进度（`workflow_dispatch` 下自动关闭） |
 | `fail_on_blocking` | `true` | blocking 问题时 job 失败 |
 | `use_code_review_plugin` | `false` | 使用官方 code-review 插件（无 JSON gate） |
-| `model` | 空 | 指定模型，如 `claude-sonnet-4-6` |
+| `model` | `claude-sonnet-4-6` | **务必**与令牌/代理可用模型一致；403 时在 caller 中覆盖 |
 | `extra_review_instructions` | 空 | 追加审查说明 |
 | `anthropic_custom_headers` | 空 | 自定义请求头 JSON（设置 `ANTHROPIC_CUSTOM_HEADERS`） |
 | `load_template_guidelines` | `true` | 从模板库拉取 `REVIEW.md` / `CLAUDE.md` |
@@ -138,3 +140,4 @@ jobs:
 - 默认模式会要求 Claude 写入 `.github/claude-review-result.json`，并由 gate 步骤解析；**推荐用于合并门槛**。
 - `use_code_review_plugin: true` 时使用官方插件，评论更丰富，但**不会**根据 JSON 自动 fail job；仅适合“只评论、不挡合并”的场景。
 - 若报错 `Reached maximum number of turns`，在 caller 的 `with` 中增大 `max_turns`（如 `50`），或缩小 PR 变更范围。
+- 若报错 `403` / `无权访问模型 claude-opus-4-7`：在 caller 显式指定 `model`（勿依赖 action 默认 opus），例如 `model: claude-sonnet-4-6` 或代理文档中的模型名。
