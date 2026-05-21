@@ -16,7 +16,7 @@ on:
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
 
-  # 方式 B：Actions 页手动 Run workflow，填写 PR 编号
+  # 方式 B：Actions 页手动 Run workflow，填写 PR 编号（无进度评论条，审查仍正常）
   workflow_dispatch:
     inputs:
       pr_number:

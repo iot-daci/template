@@ -73,7 +73,7 @@ jobs:
 | input | 默认 | 说明 |
 |-------|------|------|
 | `max_turns` | `15` | Claude 最大对话轮数 |
-| `track_progress` | `true` | PR 上显示审查进度 |
+| `track_progress` | `true` | PR 上显示审查进度（`workflow_dispatch` 下自动关闭） |
 | `fail_on_blocking` | `true` | blocking 问题时 job 失败 |
 | `use_code_review_plugin` | `false` | 使用官方 code-review 插件（无 JSON gate） |
 | `model` | 空 | 指定模型，如 `claude-sonnet-4-6` |
