@@ -1,3 +1,9 @@
+# 可复用 workflow：caller job 必须声明 permissions，例如：
+#   permissions:
+#     contents: read
+#     pull-requests: write
+#     issues: write
+#     id-token: write
 name: Claude PR Review
 
 on:

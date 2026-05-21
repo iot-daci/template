@@ -34,12 +34,19 @@ on:
 
 jobs:
   claude-review:
+    permissions:
+      contents: read
+      pull-requests: write
+      issues: write
+      id-token: write
     uses: YOUR_ORG/template/.github/workflows/claude-pr-review.yml@main
     secrets:
       ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
 ```
 
-将 `YOUR_ORG/template` 替换为本模板库的实际 `owner/repo`。
+将 `YOUR_ORG/template` 替换为本模板库的实际 `owner/repo`（例如 `iot-daci/template`）。
+
+**若报错** `is only allowed 'pull-requests: none'`：说明 caller 的 job 未声明 `permissions`，按上面补上即可。若仓库 Settings → Actions → General 里 workflow 权限为只读，也需改为 **Read and write**。
 
 4. **合并门槛（按 GitHub 计划选择）**：
    - **公开仓库 + 免费版**：可在 Branch protection 中勾选 **Require status checks** → `claude-review`（或 `PR Claude Review / claude-review`）。

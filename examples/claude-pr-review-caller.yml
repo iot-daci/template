@@ -26,6 +26,12 @@ on:
 
 jobs:
   claude-review:
+    # 调用可复用 workflow 时必须在 caller job 声明权限（否则会报 permissions none）
+    permissions:
+      contents: read
+      pull-requests: write
+      issues: write
+      id-token: write
     uses: YOUR_ORG/template/.github/workflows/claude-pr-review.yml@main
     secrets:
       ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
