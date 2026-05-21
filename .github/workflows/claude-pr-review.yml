@@ -53,6 +53,11 @@ on:
         type: string
         required: false
         default: ""
+      pr_number:
+        description: "PR 编号；pull_request 事件可留空，workflow_dispatch 手动触发时必填"
+        type: string
+        required: false
+        default: ""
     secrets:
       ANTHROPIC_API_KEY:
         required: true
@@ -60,7 +65,7 @@ on:
         required: false
 
 concurrency:
-  group: claude-pr-review-${{ github.event.pull_request.number || github.run_id }}
+  group: claude-pr-review-${{ github.event.pull_request.number || inputs.pr_number || github.run_id }}
   cancel-in-progress: true
 
 jobs:
@@ -73,17 +78,30 @@ jobs:
       id-token: write
 
     steps:
-      - name: Checkout PR branch
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 1
-
-      - name: Validate PR context
+      - name: Resolve pull request
+        id: pr
         run: |
-          if [ -z "${{ github.event.pull_request.number }}" ]; then
-            echo "::error::此 workflow 必须在 pull_request 事件中调用"
+          if [ -n "${{ github.event.pull_request.number }}" ]; then
+            PR_NUM="${{ github.event.pull_request.number }}"
+          elif [ -n "${{ inputs.pr_number }}" ]; then
+            PR_NUM="${{ inputs.pr_number }}"
+          else
+            echo "::error::需要 pull_request 事件，或在 workflow_dispatch 时传入 inputs.pr_number"
             exit 1
           fi
+          echo "number=$PR_NUM" >> "$GITHUB_OUTPUT"
+          echo "PR_NUMBER=$PR_NUM" >> "$GITHUB_ENV"
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Checkout PR branch
+        run: gh pr checkout "$PR_NUMBER"
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ steps.pr.outputs.number }}
 
       - name: Configure Anthropic endpoint
         run: |
@@ -158,7 +176,7 @@ jobs:
           track_progress: ${{ inputs.track_progress }}
           plugin_marketplaces: "https://github.com/anthropics/claude-code.git"
           plugins: "code-review@claude-code-plugins"
-          prompt: "/code-review:code-review ${{ github.repository }}/pull/${{ github.event.pull_request.number }}"
+          prompt: "/code-review:code-review ${{ github.repository }}/pull/${{ env.PR_NUMBER }}"
           claude_args: |
             ${{ inputs.model != '' && format('--model {0}', inputs.model) || '' }}
             --max-turns ${{ inputs.max_turns }}
@@ -172,7 +190,7 @@ jobs:
           track_progress: ${{ inputs.track_progress }}
           prompt: |
             REPO: ${{ github.repository }}
-            PR NUMBER: ${{ github.event.pull_request.number }}
+            PR NUMBER: ${{ env.PR_NUMBER }}
 
             请审查本 Pull Request。本项目为金融业务，安全与资金正确性要求极高。
 

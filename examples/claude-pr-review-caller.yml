@@ -3,14 +3,26 @@
 # 前置条件：
 # 1. 业务仓库 Settings → Secrets → ANTHROPIC_API_KEY（可选 ANTHROPIC_BASE_URL）
 # 2. 安装 Claude GitHub App: https://github.com/apps/claude
-# 3. 分支保护中勾选 required check: claude-review
-# 4. REVIEW.md / CLAUDE.md 默认从 template 库自动注入，无需复制（业务仓有同名文件则优先用业务仓）
+# 3. REVIEW.md / CLAUDE.md 默认从 template 库自动注入（业务仓有同名文件则优先用业务仓）
+#
+# 合并门槛说明（GitHub 免费版私有库）：
+# - 私有库「必须通过指定检查」通常需 GitHub Pro；免费版无法靠分支保护强制挡合并
+# - 可改用：PR 自动跑审查 + 人工看 Checks/评论；或仅用手动 workflow_dispatch（省额度）
 
 name: PR Claude Review
 
 on:
+  # 方式 A：PR 打开/更新时自动审查（可注释掉以仅手动触发）
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
+
+  # 方式 B：Actions 页手动 Run workflow，填写 PR 编号
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: "要审查的 Pull Request 编号"
+        required: true
+        type: number
 
 jobs:
   claude-review:
@@ -18,10 +30,12 @@ jobs:
     secrets:
       ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
       # ANTHROPIC_BASE_URL: ${{ secrets.ANTHROPIC_BASE_URL }}
+    with:
+      pr_number: ${{ github.event.pull_request.number || inputs.pr_number }}
     # with:
     #   max_turns: 15
     #   track_progress: true
-    #   fail_on_blocking: true
+    #   fail_on_blocking: false   # 免费版无法强制挡合并时可设为 false，仅作参考审查
     #   use_code_review_plugin: false
     #   extra_review_instructions: |
     #     本项目为 Java 服务，重点关注空指针与事务边界。

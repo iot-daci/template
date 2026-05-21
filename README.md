@@ -41,7 +41,25 @@ jobs:
 
 将 `YOUR_ORG/template` 替换为本模板库的实际 `owner/repo`。
 
-4. **合并前必须通过审查**：在目标分支（如 `main`）的 Branch protection 中勾选 **Require status checks**，选择 **`claude-review`**（与 caller 中 `jobs` 的 key 一致）。
+4. **合并门槛（按 GitHub 计划选择）**：
+   - **公开仓库 + 免费版**：可在 Branch protection 中勾选 **Require status checks** → `claude-review`（或 `PR Claude Review / claude-review`）。
+   - **私有仓库 + 免费版**：通常**无法**使用「必须通过指定 status check」（需 Pro/Team）。见下方 [免费版替代方案](#免费版替代方案)。
+
+### 免费版替代方案
+
+| 方式 | 说明 |
+|------|------|
+| **自动审查 + 人工合并** | 保留 `on.pull_request`，合并前人工看 PR 的 Checks 是否通过、评论是否处理（流程约束，非技术强制） |
+| **仅手动审查** | 去掉 `pull_request`，只保留 `workflow_dispatch`，在 Actions 页输入 PR 编号运行（见 [examples/claude-pr-review-caller.yml](examples/claude-pr-review-caller.yml)） |
+| **基础分支保护（免费私有库可用）** | Settings → Branches：禁止直接 push 到 `main`、**Require a pull request before merging**（不勾选 required checks 也能强制走 PR） |
+| **CODEOWNERS** | 要求指定人 approve（与 Claude 审查互补，不依赖 status check） |
+| **PR 标签** | 审查通过后由维护者打 `review-passed` 标签再合并（可配合自动评论里的 summary） |
+
+手动触发示例（caller 已包含 `workflow_dispatch`）：
+
+1. 打开业务仓 **Actions** → **PR Claude Review** → **Run workflow**
+2. 填写 **pr_number**（如 `42`）
+3. 在 PR 的 **Checks** / **Conversation** 查看结果；`fail_on_blocking: true` 时失败会在 Actions 显示红叉，但免费私有库仍可能允许合并，需团队自觉遵守。
 
 ### 可选参数
 
