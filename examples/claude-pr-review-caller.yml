@@ -41,7 +41,8 @@ jobs:
       # 必填改为你家 API/代理实际支持的模型 ID（403 多为模型无权限）
       model: claude-sonnet-4-6
     # with:
-    #   max_turns: 40
+    #   max_turns: 60
+    #   post_inline_comments: false
     #   track_progress: true
     #   fail_on_blocking: false   # 免费版无法强制挡合并时可设为 false，仅作参考审查
     #   use_code_review_plugin: false

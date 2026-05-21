@@ -3,6 +3,17 @@
 本文件仅用于 PR Code Review，优先级高于默认审查规则与 `CLAUDE.md`。
 业务仓库可复制后按实际系统（支付、账务、风控、开户等）增删条款。
 
+## Agent 审查流程（控制 Actions 轮数）
+
+自动化审查时 **只审 `.github/claude-pr-diff.patch` 中的变更**，不要扫全库。
+
+1. 读 `REVIEW.md` 一次，按下方 Important 清单对照 diff  
+2. 先写 `claude-review-result.json`，再发 **一条** PR 总结评论  
+3. 默认 **不发** inline comment（由 workflow `post_inline_comments` 控制）  
+4. Nit ≤ 5 条；Important 每条需 `路径:行号`  
+
+轮数不够时：缩小 PR、提高 `max_turns`，或关闭 inline comment。
+
 ## Important（必须修复，否则 status=fail）
 
 以下任一情况必须标为 **Important**，计入 `blocking_issues`，并在 `claude-review-result.json` 中令 `status` 为 `fail`：

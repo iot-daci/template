@@ -74,7 +74,8 @@ jobs:
 
 | input | 默认 | 说明 |
 |-------|------|------|
-| `max_turns` | `30` | Claude 最大对话轮数；超大 PR 可设 `40`～`50` |
+| `max_turns` | `50` | 最大对话轮数；仍超限可设 `60`～`80` 或缩小 PR |
+| `post_inline_comments` | `false` | `true` 时在 diff 行发评论（**每条多占轮数**，大 PR 易超限） |
 | `track_progress` | `true` | PR 上显示审查进度（`workflow_dispatch` 下自动关闭） |
 | `fail_on_blocking` | `true` | blocking 问题时 job 失败 |
 | `use_code_review_plugin` | `false` | 使用官方 code-review 插件（无 JSON gate） |
@@ -132,5 +133,5 @@ Workflow 只读取**当前被审查项目**（PR 分支 checkout 后的仓库）
 
 - 默认模式会要求 Claude 写入 `.github/claude-review-result.json`，并由 gate 步骤解析；**推荐用于合并门槛**。
 - `use_code_review_plugin: true` 时使用官方插件，评论更丰富，但**不会**根据 JSON 自动 fail job；仅适合“只评论、不挡合并”的场景。
-- 若报错 `Reached maximum number of turns`，在 caller 的 `with` 中增大 `max_turns`（如 `50`），或缩小 PR 变更范围。
+- 若报错 `Reached maximum number of turns`：① 保持 `post_inline_comments: false`（默认）② 增大 `max_turns` ③ 拆小 PR ④ 规则复杂时精简 `REVIEW.md` 或删「每次必查」中与项目无关的项。根因通常是 **inline comment 过多 / diff 过大**，不是规则字数本身。
 - 若报错 `403` / `无权访问模型 claude-opus-4-7`：在 caller 显式指定 `model`（勿依赖 action 默认 opus），例如 `model: claude-sonnet-4-6` 或代理文档中的模型名。

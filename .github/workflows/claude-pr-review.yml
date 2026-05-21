@@ -10,10 +10,15 @@ on:
   workflow_call:
     inputs:
       max_turns:
-        description: "Claude Code 最大对话轮数（大型 PR 可调到 40～50）"
+        description: "Claude Code 最大对话轮数（大型 PR 可调到 60～80）"
         type: number
         required: false
-        default: 30
+        default: 50
+      post_inline_comments:
+        description: "是否在 diff 行发 inline comment（每条占多轮；大 PR 建议 false，只发 PR 总结）"
+        type: boolean
+        required: false
+        default: false
       track_progress:
         description: "是否在 PR 上显示审查进度评论（仅 pull_request 等事件有效；workflow_dispatch 会自动关闭）"
         type: boolean
@@ -40,7 +45,7 @@ on:
         required: false
         default: false
       anthropic_custom_headers:
-        description: '自定义请求头 JSON 字符串（留空不设置；对应 ANTHROPIC_CUSTOM_HEADERS）'
+        description: "自定义请求头 JSON 字符串（留空不设置；对应 ANTHROPIC_CUSTOM_HEADERS）"
         type: string
         required: false
         default: ""
@@ -115,6 +120,18 @@ jobs:
           ANTHROPIC_BASE_URL_INPUT: ${{ secrets.ANTHROPIC_BASE_URL }}
           ANTHROPIC_CUSTOM_HEADERS_INPUT: ${{ inputs.anthropic_custom_headers }}
 
+      - name: Prepare PR diff for review
+        run: |
+          mkdir -p .github
+          gh pr diff "$PR_NUMBER" > .github/claude-pr-diff.patch
+          gh pr view "$PR_NUMBER" --json title,body,files,additions,deletions \
+            > .github/claude-pr-meta.json
+          echo "diff_lines=$(wc -l < .github/claude-pr-diff.patch | tr -d ' ')" >> "$GITHUB_ENV"
+          echo "已生成 .github/claude-pr-diff.patch ($(wc -l < .github/claude-pr-diff.patch) 行)"
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ steps.pr.outputs.number }}
+
       - name: Check review guidelines in repository
         run: |
           echo "当前仓库: ${{ github.repository }} (PR #${PR_NUMBER} 分支)"
@@ -157,24 +174,27 @@ jobs:
           prompt: |
             REPO: ${{ github.repository }}
             PR NUMBER: ${{ env.PR_NUMBER }}
+            DIFF_LINES: ${{ env.diff_lines }}
+            POST_INLINE_COMMENTS: ${{ inputs.post_inline_comments }}
 
-            请审查本 Pull Request。本项目为金融业务，安全与资金正确性要求极高。
+            请审查本 Pull Request（金融业务）。在 **尽可能少的工具轮次内** 完成。
 
-            必须先阅读本仓库（当前 PR 分支）根目录的 REVIEW.md（若存在，审查专用、优先级最高），其次参考 CLAUDE.md（若存在）。
-            关注：资金/账务正确性、鉴权与越权、敏感数据、注入与 SSRF、审计追溯、幂等与并发。
+            ## 必读（各读一次即可）
+            1. `.github/claude-pr-meta.json` — PR 元数据与变更文件列表
+            2. `.github/claude-pr-diff.patch` — **完整 diff，审查范围仅限此 diff 涉及逻辑**
+            3. 根目录 `REVIEW.md`（若存在）— Important/Nit 定义
+            4. 根目录 `CLAUDE.md`（若存在，可选）
 
-            PR 分支已在当前工作目录 checkout。
+            禁止：全仓库搜索、逐个打开与 diff 无关的文件、重复执行 gh pr diff/view。
 
-            效率要求（避免超过 max_turns）：
-            - 用 `gh pr diff` / `gh pr view` 聚焦本 PR 变更，不要全仓库扫描
-            - REVIEW.md、CLAUDE.md 各 Read 一次即可
-            - Important 问题优先；Nit 最多 5 条（与 REVIEW.md 一致）
-            - 完成审查后尽快 Write 结果 JSON，不要重复调用同一工具
+            ## 输出（按顺序，控制轮数）
+            1. **先** Write `.github/claude-review-result.json`（见下方格式）
+            2. **再** 一条 `gh pr comment` 总结（含 Important/Nit 数量与要点列表）
+            3. inline comment：仅当 POST_INLINE_COMMENTS 为 true 时，且 **最多 8 条**、仅 Important、必须有行号
 
-            用 inline comment 标注 Important 的具体代码问题，用 `gh pr comment` 写总结。
+            Important 优先；Nit 最多 5 条；无问题时也要写 JSON 与总结。
 
-            审查结束后，必须用 Write 工具创建文件：
-            `.github/claude-review-result.json`
+            `.github/claude-review-result.json` 格式：
 
             文件格式（严格遵守，仅 JSON，无 markdown 包裹）：
             {
@@ -193,7 +213,7 @@ jobs:
           claude_args: |
             --model ${{ env.CLAUDE_MODEL }}
             --max-turns ${{ inputs.max_turns }}
-            --allowedTools "mcp__github_inline_comment__create_inline_comment,Bash(gh pr comment:*),Bash(gh pr diff:*),Bash(gh pr view:*),Write"
+            --allowedTools "${{ inputs.post_inline_comments && 'mcp__github_inline_comment__create_inline_comment,' || '' }}Bash(gh pr comment:*),Read,Write"
 
       - name: Enforce review gate
         if: inputs.fail_on_blocking && !inputs.use_code_review_plugin
