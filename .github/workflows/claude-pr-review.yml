@@ -1,0 +1,245 @@
+name: Claude PR Review
+
+on:
+  workflow_call:
+    inputs:
+      max_turns:
+        description: "Claude Code 最大对话轮数"
+        type: number
+        required: false
+        default: 15
+      track_progress:
+        description: "是否在 PR 上显示审查进度评论"
+        type: boolean
+        required: false
+        default: true
+      extra_review_instructions:
+        description: "追加到审查 prompt 的额外说明（可选）"
+        type: string
+        required: false
+        default: ""
+      fail_on_blocking:
+        description: "存在 blocking 问题时是否让 job 失败（用于分支保护）"
+        type: boolean
+        required: false
+        default: true
+      model:
+        description: "Claude 模型（留空则使用 action 默认）"
+        type: string
+        required: false
+        default: ""
+      use_code_review_plugin:
+        description: "是否使用官方 code-review 插件（true 时忽略自定义审查 prompt）"
+        type: boolean
+        required: false
+        default: false
+      anthropic_custom_headers:
+        description: '自定义请求头 JSON 字符串（留空不设置；对应 ANTHROPIC_CUSTOM_HEADERS）'
+        type: string
+        required: false
+        default: ""
+      load_template_guidelines:
+        description: "是否从本模板库拉取 REVIEW.md / CLAUDE.md（业务仓库已有文件时优先用业务版本）"
+        type: boolean
+        required: false
+        default: true
+      template_repository:
+        description: "模板库 owner/repo（留空则从 uses 的 workflow_ref 自动解析）"
+        type: string
+        required: false
+        default: ""
+      template_ref:
+        description: "模板库 git ref（留空则使用 uses 引用的 ref，如 refs/heads/main）"
+        type: string
+        required: false
+        default: ""
+    secrets:
+      ANTHROPIC_API_KEY:
+        required: true
+      ANTHROPIC_BASE_URL:
+        required: false
+
+concurrency:
+  group: claude-pr-review-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: true
+
+jobs:
+  claude-review:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+      issues: write
+      id-token: write
+
+    steps:
+      - name: Checkout PR branch
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Validate PR context
+        run: |
+          if [ -z "${{ github.event.pull_request.number }}" ]; then
+            echo "::error::此 workflow 必须在 pull_request 事件中调用"
+            exit 1
+          fi
+
+      - name: Configure Anthropic endpoint
+        run: |
+          if [ -n "$ANTHROPIC_BASE_URL_INPUT" ]; then
+            echo "ANTHROPIC_BASE_URL=$ANTHROPIC_BASE_URL_INPUT" >> "$GITHUB_ENV"
+          fi
+          if [ -n "$ANTHROPIC_CUSTOM_HEADERS_INPUT" ]; then
+            echo "ANTHROPIC_CUSTOM_HEADERS=$ANTHROPIC_CUSTOM_HEADERS_INPUT" >> "$GITHUB_ENV"
+          fi
+        env:
+          ANTHROPIC_BASE_URL_INPUT: ${{ secrets.ANTHROPIC_BASE_URL }}
+          ANTHROPIC_CUSTOM_HEADERS_INPUT: ${{ inputs.anthropic_custom_headers }}
+
+      - name: Resolve template repository
+        id: template
+        if: inputs.load_template_guidelines
+        run: |
+          WF_REF="${{ github.workflow_ref }}"
+          if [ -n "${{ inputs.template_repository }}" ]; then
+            REPO="${{ inputs.template_repository }}"
+          else
+            REPO="${WF_REF%%/.github/*}"
+          fi
+          if [ -z "$REPO" ] || { [ -z "${{ inputs.template_repository }}" ] && [ "$REPO" = "$WF_REF" ]; }; then
+            echo "::warning::无法解析模板库地址，跳过注入 REVIEW.md/CLAUDE.md"
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if [ -n "${{ inputs.template_ref }}" ]; then
+            REF="${{ inputs.template_ref }}"
+          elif [[ "$WF_REF" == *@* ]]; then
+            REF="${WF_REF#*@}"
+          else
+            REF="main"
+          fi
+          echo "repository=$REPO" >> "$GITHUB_OUTPUT"
+          echo "ref=$REF" >> "$GITHUB_OUTPUT"
+          echo "skip=false" >> "$GITHUB_OUTPUT"
+          echo "Template guidelines: $REPO@$REF"
+
+      - name: Fetch template REVIEW.md and CLAUDE.md
+        if: inputs.load_template_guidelines && steps.template.outputs.skip != 'true'
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ steps.template.outputs.repository }}
+          ref: ${{ steps.template.outputs.ref }}
+          path: _claude-template-guidelines
+          sparse-checkout: |
+            REVIEW.md
+            CLAUDE.md
+          sparse-checkout-cone-mode: true
+
+      - name: Apply review guidelines
+        if: inputs.load_template_guidelines
+        run: |
+          for f in REVIEW.md CLAUDE.md; do
+            if [ -f "$f" ]; then
+              echo "使用业务仓库: $f"
+            elif [ -f "_claude-template-guidelines/$f" ]; then
+              cp "_claude-template-guidelines/$f" "$f"
+              echo "使用模板库默认: $f"
+            else
+              echo "::warning::未找到 $f（业务仓库与模板库均无）"
+            fi
+          done
+
+      - name: Claude code review (plugin)
+        if: inputs.use_code_review_plugin
+        uses: anthropics/claude-code-action@v1
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          track_progress: ${{ inputs.track_progress }}
+          plugin_marketplaces: "https://github.com/anthropics/claude-code.git"
+          plugins: "code-review@claude-code-plugins"
+          prompt: "/code-review:code-review ${{ github.repository }}/pull/${{ github.event.pull_request.number }}"
+          claude_args: |
+            ${{ inputs.model != '' && format('--model {0}', inputs.model) || '' }}
+            --max-turns ${{ inputs.max_turns }}
+            --allowedTools "mcp__github_inline_comment__create_inline_comment,Bash(gh pr comment:*),Bash(gh pr diff:*),Bash(gh pr view:*)"
+
+      - name: Claude code review
+        if: ${{ !inputs.use_code_review_plugin }}
+        uses: anthropics/claude-code-action@v1
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          track_progress: ${{ inputs.track_progress }}
+          prompt: |
+            REPO: ${{ github.repository }}
+            PR NUMBER: ${{ github.event.pull_request.number }}
+
+            请审查本 Pull Request。本项目为金融业务，安全与资金正确性要求极高。
+
+            必须先阅读工作区根目录的 REVIEW.md（审查专用，优先级最高），其次参考 CLAUDE.md。
+            （默认由模板库注入；若业务仓库自有同名文件则已覆盖为业务版本。）
+            关注：资金/账务正确性、鉴权与越权、敏感数据、注入与 SSRF、审计追溯、幂等与并发。
+
+            PR 分支已在当前工作目录 checkout；可用 Read 工具读取 REVIEW.md、CLAUDE.md。
+            用 inline comment 标注具体代码问题，用 `gh pr comment` 写总结。
+
+            审查结束后，必须用 Write 工具创建文件：
+            `.github/claude-review-result.json`
+
+            文件格式（严格遵守，仅 JSON，无 markdown 包裹）：
+            {
+              "status": "pass",
+              "blocking_issues": 0,
+              "summary": "Important: 0，Nit: 0。无阻塞项。"
+            }
+
+            规则（与 REVIEW.md 一致）：
+            - status 只能是 "pass" 或 "fail"
+            - 任一 REVIEW.md 定义的 Important 问题 → status 为 "fail"，blocking_issues 为 Important 条数
+            - 仅有 Nit → status 为 "pass"，blocking_issues 为 0
+            - summary 首句须包含 Important / Nit 数量
+
+            ${{ inputs.extra_review_instructions }}
+          claude_args: |
+            ${{ inputs.model != '' && format('--model {0}', inputs.model) || '' }}
+            --max-turns ${{ inputs.max_turns }}
+            --allowedTools "mcp__github_inline_comment__create_inline_comment,Bash(gh pr comment:*),Bash(gh pr diff:*),Bash(gh pr view:*),Write"
+
+      - name: Enforce review gate
+        if: inputs.fail_on_blocking && !inputs.use_code_review_plugin
+        run: |
+          RESULT_FILE=".github/claude-review-result.json"
+          if [ ! -f "$RESULT_FILE" ]; then
+            echo "::error::Claude 未生成审查结果文件，视为未通过"
+            exit 1
+          fi
+          STATUS=$(jq -r '.status' "$RESULT_FILE")
+          BLOCKING=$(jq -r '.blocking_issues // 0' "$RESULT_FILE")
+          SUMMARY=$(jq -r '.summary // ""' "$RESULT_FILE")
+          echo "status=$STATUS, blocking_issues=$BLOCKING"
+          echo "summary=$SUMMARY"
+          jq . "$RESULT_FILE"
+          if [ "$STATUS" != "pass" ] || [ "$BLOCKING" -gt 0 ]; then
+            echo "::error::Claude review 未通过，请修复 blocking 问题后再合并"
+            exit 1
+          fi
+          echo "Claude review passed"
+
+      - name: Enforce review gate (plugin mode)
+        if: inputs.fail_on_blocking && inputs.use_code_review_plugin
+        run: |
+          echo "::warning::plugin 模式未写入 claude-review-result.json，仅检查 workflow 是否成功完成"
+          echo "若需严格合并门槛，请使用默认自定义 prompt 模式（use_code_review_plugin: false）"
+
+      - name: Summary
+        if: always()
+        run: |
+          echo "## Claude PR Review" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          if [ -f ".github/claude-review-result.json" ]; then
+            echo '```json' >> $GITHUB_STEP_SUMMARY
+            cat .github/claude-review-result.json >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+          else
+            echo "审查已完成（plugin 模式或未生成结果 JSON）。" >> $GITHUB_STEP_SUMMARY
+          fi

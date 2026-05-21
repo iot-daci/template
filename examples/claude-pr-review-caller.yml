@@ -1,0 +1,27 @@
+# 复制到业务仓库 .github/workflows/ 下使用
+#
+# 前置条件：
+# 1. 业务仓库 Settings → Secrets → ANTHROPIC_API_KEY（可选 ANTHROPIC_BASE_URL）
+# 2. 安装 Claude GitHub App: https://github.com/apps/claude
+# 3. 分支保护中勾选 required check: claude-review
+# 4. REVIEW.md / CLAUDE.md 默认从 template 库自动注入，无需复制（业务仓有同名文件则优先用业务仓）
+
+name: PR Claude Review
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+
+jobs:
+  claude-review:
+    uses: YOUR_ORG/template/.github/workflows/claude-pr-review.yml@main
+    secrets:
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      # ANTHROPIC_BASE_URL: ${{ secrets.ANTHROPIC_BASE_URL }}
+    # with:
+    #   max_turns: 15
+    #   track_progress: true
+    #   fail_on_blocking: true
+    #   use_code_review_plugin: false
+    #   extra_review_instructions: |
+    #     本项目为 Java 服务，重点关注空指针与事务边界。
