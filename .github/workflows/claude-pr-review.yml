@@ -140,4 +140,9 @@ jobs:
 
       - name: Summary
         if: always()
-        run: echo "Claude PR #${PR_NUMBER} 审查流程已结束，请查看 PR 评论。" >> $GITHUB_STEP_SUMMARY
+        run: |
+          {
+            echo "## Claude PR Review"
+            echo ""
+            echo "PR ${PR_NUMBER} 审查已结束，请查看 PR 评论。"
+          } >> "${GITHUB_STEP_SUMMARY}"
