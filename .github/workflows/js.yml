@@ -19,6 +19,8 @@ on:
         required: true
       DOCKER_PASSWORD:
         required: true
+      NPM_AUTH_TOKEN:
+        required: false
 
 jobs:
   build:
@@ -29,6 +31,9 @@ jobs:
         - /root/.m2:/root/.m2
     env:
       REGISTRY: registry.cn-hangzhou.aliyuncs.com
+      NPM_CONFIG_USERCONFIG: /root/.npmrc
+      NPM_AUTH_TOKEN: ${{ secrets.NPM_AUTH_TOKEN }}
+      NPM_REGISTRY: https://packages.aliyun.com/637eea4f126bcb821717c7ff/npm/npm-registry/
     steps:
 
       # 拉取代码
@@ -105,9 +110,27 @@ jobs:
           echo "Node version: $NODE_VERSION"
           echo "NODE_VERSION=$NODE_VERSION" >> $GITHUB_ENV
 
-      # 初始化环境变量
+      # 初始化 npm（优先 NPM_AUTH_TOKEN secret，否则用镜像内 /tmp/.e）
       - name: Init builder env
         run: init_env.sh
+
+      - name: Configure npm registry auth
+        run: |
+          if [ -z "${NPM_AUTH_TOKEN}" ]; then
+            echo "NPM_AUTH_TOKEN not set, skip npm auth configure"
+            exit 0
+          fi
+          REGISTRY_HOST="${NPM_REGISTRY#https://}"
+          REGISTRY_HOST="${REGISTRY_HOST%/}"
+          printf '%s\n' \
+            "registry=${NPM_REGISTRY}" \
+            "always-auth=true" \
+            "//${REGISTRY_HOST}/:_authToken=${NPM_AUTH_TOKEN}" \
+            "cache=/root/.npm" \
+            "strict-peer-dependencies=false" \
+            "auto-install-peers=true" \
+            > /root/.npmrc
+          echo "Configured npm registry auth"
 
       # 编译包
       - name: Build package
