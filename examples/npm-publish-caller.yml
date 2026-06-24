@@ -23,4 +23,4 @@ jobs:
       package_path: packages/admin-core
       publish_command: pnpm publish:admin-core
     secrets:
-      NPM_AUTH_TOKEN: ${{ secrets.NPM_AUTH_TOKEN }}
+      NPM_AUTH_TOKEN: ${{ secrets.NPM_AUTH_TOKEN }}  # 必填：阿里云 npm token

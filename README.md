@@ -73,7 +73,7 @@ jobs:
 
 1. 复制 [examples/npm-publish-caller.yml](examples/npm-publish-caller.yml) 到业务仓 `.github/workflows/`
 2. 按需修改 `paths`、`workdir`、`package_path`、`publish_command`
-3. （可选）Secret：`NPM_AUTH_TOKEN`；未配置时使用 js 镜像内置 npm 认证
+3. Secret **`NPM_AUTH_TOKEN`**（必填）：阿里云 npm auth token；workflow 会在 publish 前写入 `/root/.npmrc`（字面量 token，避免 pnpm OIDC 回退失败）
 
 ```yaml
 jobs:
@@ -93,6 +93,11 @@ jobs:
 | `package_path` | （必填） | package 相对路径，用于读 `package.json` 做版本检查 |
 | `publish_command` | 空 | 自定义发布命令；空则 `pnpm -C <package_path> publish --no-git-checks` |
 | `skip_if_exists` | `true` | 同版本已存在则跳过 |
+| `registry_url` | 阿里云 npm 私服 | publish / npm view 使用的 registry |
+
+| secret | 必填 | 说明 |
+|--------|------|------|
+| `NPM_AUTH_TOKEN` | 是 | 阿里云 npm auth token |
 
 ### 可选参数
 
