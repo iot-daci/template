@@ -1,0 +1,26 @@
+# 复制到业务仓库 .github/workflows/admin-portal-publish.yml 并按需修改 paths / branches
+
+name: Publish admin-portal npm packages
+
+on:
+  push:
+    paths:
+      - "admin-portal/packages/**"
+      - "admin-portal/pnpm-lock.yaml"
+      - "admin-portal/package.json"
+      - "admin-portal/pnpm-workspace.yaml"
+      - ".github/workflows/admin-portal-publish.yml"
+    branches:
+      - "main"
+      - "dev"
+  workflow_dispatch:
+
+jobs:
+  publish:
+    uses: iot-daci/template/.github/workflows/npm-publish.yml@main
+    with:
+      workdir: admin-portal
+      package_path: packages/admin-core
+      publish_command: pnpm publish:admin-core
+    secrets:
+      NPM_AUTH_TOKEN: ${{ secrets.NPM_AUTH_TOKEN }}

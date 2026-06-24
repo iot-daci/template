@@ -10,6 +10,7 @@ GitHub Actions 可复用 workflow 模板库。业务仓库通过 `workflow_call`
 | `java-lib.yml` / `java-lib-17.yml` | Java 库构建 |
 | `docker.yml` | Docker 镜像构建 |
 | `js.yml` | 前端构建 |
+| `npm-publish.yml` | npm 包发布（pnpm monorepo，阿里云私服） |
 | `cpp.yml` | C++ 构建 |
 | `artifact-zip.yml` | 产物打包 |
 | `auto-sync-features.yml` | 多 feature 分支合并到 dev |
@@ -63,6 +64,35 @@ jobs:
 将 `YOUR_ORG/template` 换成实际模板库路径。在 PR **Conversation** 发 `/review` 即可。
 
 **权限报错** `pull-requests: none`：caller job 须声明上面 `permissions`，且仓库 Actions 设为 **Read and write**。
+
+## npm 包发布
+
+基于 `lzk90s/js-develop-env:alpine`（内置 `/root/.npmrc`），发布 pnpm monorepo 中的单个 package。
+
+### 业务仓库接入
+
+1. 复制 [examples/npm-publish-caller.yml](examples/npm-publish-caller.yml) 到业务仓 `.github/workflows/`
+2. 按需修改 `paths`、`workdir`、`package_path`、`publish_command`
+3. （可选）Secret：`NPM_AUTH_TOKEN`；未配置时使用 js 镜像内置 npm 认证
+
+```yaml
+jobs:
+  publish:
+    uses: iot-daci/template/.github/workflows/npm-publish.yml@main
+    with:
+      workdir: admin-portal
+      package_path: packages/admin-core
+      publish_command: pnpm publish:admin-core
+    secrets:
+      NPM_AUTH_TOKEN: ${{ secrets.NPM_AUTH_TOKEN }}
+```
+
+| input | 默认 | 说明 |
+|-------|------|------|
+| `workdir` | `.` | monorepo 根目录 |
+| `package_path` | （必填） | package 相对路径，用于读 `package.json` 做版本检查 |
+| `publish_command` | 空 | 自定义发布命令；空则 `pnpm -C <package_path> publish --no-git-checks` |
+| `skip_if_exists` | `true` | 同版本已存在则跳过 |
 
 ### 可选参数
 

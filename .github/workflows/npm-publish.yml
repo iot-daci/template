@@ -1,0 +1,67 @@
+name: publish npm package
+
+on:
+  workflow_call:
+    inputs:
+      workdir:
+        type: string
+        required: false
+        default: "."
+      package_path:
+        type: string
+        required: true
+        description: "Package directory relative to workdir, e.g. packages/admin-core"
+      publish_command:
+        type: string
+        required: false
+        default: ""
+        description: "Publish command relative to workdir; default pnpm -C <package_path> publish --no-git-checks"
+      skip_if_exists:
+        type: boolean
+        required: false
+        default: true
+        description: "Skip publish when the same name@version already exists in registry"
+    secrets:
+      NPM_AUTH_TOKEN:
+        required: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    container:
+      image: lzk90s/js-develop-env:alpine
+      volumes:
+        - /root/.m2:/root/.m2
+    defaults:
+      run:
+        working-directory: ${{ inputs.workdir }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Init npm env
+        run: init_env.sh
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Publish package
+        env:
+          NPM_AUTH_TOKEN: ${{ secrets.NPM_AUTH_TOKEN }}
+        run: |
+          PKG=$(node -p "require('./${{ inputs.package_path }}/package.json').name")
+          VERSION=$(node -p "require('./${{ inputs.package_path }}/package.json').version")
+          echo "package=${PKG} version=${VERSION}"
+
+          if [ "${{ inputs.skip_if_exists }}" = "true" ]; then
+            if npm view "${PKG}@${VERSION}" version >/dev/null 2>&1; then
+              echo "${PKG}@${VERSION} already published, skip"
+              exit 0
+            fi
+          fi
+
+          if [ -n "${{ inputs.publish_command }}" ]; then
+            ${{ inputs.publish_command }}
+          else
+            pnpm -C "${{ inputs.package_path }}" publish --no-git-checks
+          fi
