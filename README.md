@@ -23,13 +23,14 @@ GitHub Actions 可复用 workflow 模板库。业务仓库通过 `workflow_call`
 
 ### 业务仓库接入
 
-caller job 须声明 `permissions.contents: write`，并传入 `GH_TOKEN`（需有 repo 写权限）：
+1. 仓库 Secret 配置 **`GH_TOKEN`**（PAT 或 GitHub App token，需 repo 写权限）
+2. 复制 [examples/auto-sync-features-caller.yml](examples/auto-sync-features-caller.yml) 到业务仓 `.github/workflows/`
+
+checkout / push 走 `GH_TOKEN`，**caller 不需要** `permissions: contents: write`（默认 `contents: read` 即可）：
 
 ```yaml
 jobs:
   sync-dev:
-    permissions:
-      contents: write
     uses: YOUR_ORG/template/.github/workflows/auto-sync-features.yml@main
     secrets:
       GH_TOKEN: ${{ secrets.GH_TOKEN }}

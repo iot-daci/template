@@ -31,9 +31,6 @@ concurrency:
   group: auto-sync-dev-${{ github.repository }}
   cancel-in-progress: false
 
-permissions:
-  contents: write
-
 jobs:
   sync-all-features-to-dev:
     runs-on: ubuntu-latest
