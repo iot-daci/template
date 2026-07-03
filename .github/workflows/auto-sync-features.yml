@@ -46,12 +46,9 @@ jobs:
         run: echo "BUILD_START_TIME=$(date +%s)" >> $GITHUB_ENV
 
       - name: Setup Git
-        env:
-          GH_TOKEN: ${{ secrets.GH_TOKEN }}
         run: |
           git config user.name "Auto Merge Bot"
           git config user.email "auto-merge@users.noreply.github.com"
-          echo "$GH_TOKEN" | gh auth login --with-token
 
       - name: Fetch remote branches
         run: git fetch origin --prune
