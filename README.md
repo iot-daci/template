@@ -13,9 +13,43 @@ GitHub Actions 可复用 workflow 模板库。业务仓库通过 `workflow_call`
 | `npm-publish.yml` | npm 包发布（pnpm monorepo，阿里云私服） |
 | `cpp.yml` | C++ 构建 |
 | `artifact-zip.yml` | 产物打包 |
-| `auto-sync-features.yml` | 多 feature 分支合并到 dev |
+| `auto-sync-features.yml` | 多 feature 分支合并到 dev（可配置 pattern、重建 dev） |
 | **`claude-pr-review.yml`** | **PR Code Review（Claude，/review 触发，预先生成 diff 文件）** |
 | **`claude-pr-review-auto.yml`** | **PR Code Review（Claude，/review 触发，由 Claude 自行通过 gh 拉取 diff）** |
+
+## Auto Sync Features → Dev
+
+将多个 `feature-*` 分支（及可选的 `main`）自动 merge 到 `dev`。冲突时停止后续合并，并 push 冲突前已成功 merge 的部分。
+
+### 业务仓库接入
+
+caller job 须声明 `permissions.contents: write`，并传入 `GH_TOKEN`（需有 repo 写权限）：
+
+```yaml
+jobs:
+  sync-dev:
+    permissions:
+      contents: write
+    uses: YOUR_ORG/template/.github/workflows/auto-sync-features.yml@main
+    secrets:
+      GH_TOKEN: ${{ secrets.GH_TOKEN }}
+    with:
+      branch_pattern: feature-*
+      include_main: true
+      force_recreate_dev: false   # 删远程 dev 后重建时设为 true
+```
+
+| input | 默认 | 说明 |
+|-------|------|------|
+| `branch_pattern` | `feature-*` | 要合并的远程分支 glob（不含 `origin/`） |
+| `include_main` | `true` | 每次 sync 是否 merge `base_branch` |
+| `base_branch` | `main` | 创建/重建 dev 时的基线分支 |
+| `target_branch` | `dev` | 集成分支 |
+| `force_recreate_dev` | `false` | 从 `base_branch` 重建 dev 后再 merge（配合删远程 dev） |
+
+| secret | 必填 | 说明 |
+|--------|------|------|
+| `GH_TOKEN` | 是 | PAT 或 GitHub App token，需 `contents: write` |
 
 ## Claude PR Review
 
