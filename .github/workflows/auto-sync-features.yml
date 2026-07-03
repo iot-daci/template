@@ -255,9 +255,23 @@ jobs:
             echo "1. ✅ 已成功合并的部分已推送到 \`dev\` 分支" >> $GITHUB_STEP_SUMMARY
             echo "2. ❌ 请按以下步骤解决冲突分支:" >> $GITHUB_STEP_SUMMARY
             echo "" >> $GITHUB_STEP_SUMMARY
+            echo "**⚠️ 同步前请先重置本地 dev（必读）**" >> $GITHUB_STEP_SUMMARY
+            echo "若服务端 \`dev\` 曾被删除并重建（或历史与本地不一致），**必须先删除本地 \`dev\` 再拉取**，否则 \`git pull\` 可能失败或产生错误合并。" >> $GITHUB_STEP_SUMMARY
+            echo '```bash' >> $GITHUB_STEP_SUMMARY
+            echo "# 切换到其他分支（不能在 dev 上删除 dev）" >> $GITHUB_STEP_SUMMARY
+            echo "git checkout main" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "# 删除本地 dev 分支" >> $GITHUB_STEP_SUMMARY
+            echo "git branch -D dev" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "# 拉取远程最新 dev 并建立本地跟踪分支" >> $GITHUB_STEP_SUMMARY
+            echo "git fetch origin" >> $GITHUB_STEP_SUMMARY
+            echo "git checkout -b dev origin/dev" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
             echo "**解决冲突的方法:**" >> $GITHUB_STEP_SUMMARY
             echo '```bash' >> $GITHUB_STEP_SUMMARY
-            echo "# 1. 检出 dev 分支" >> $GITHUB_STEP_SUMMARY
+            echo "# 1. 确保本地 dev 已与远程一致（见上方重置步骤）" >> $GITHUB_STEP_SUMMARY
             echo "git checkout dev" >> $GITHUB_STEP_SUMMARY
             echo "git pull origin dev" >> $GITHUB_STEP_SUMMARY
             echo "" >> $GITHUB_STEP_SUMMARY
@@ -281,6 +295,7 @@ jobs:
             echo "**提示:**" >> $GITHUB_STEP_SUMMARY
             echo "- 冲突文件位置已在上方冲突详情中列出" >> $GITHUB_STEP_SUMMARY
             echo "- 解决冲突后，可以重新运行此工作流来合并剩余分支" >> $GITHUB_STEP_SUMMARY
+            echo "- 若运维删除了远程 \`dev\` 并触发重建，所有开发者都需执行上方「重置本地 dev」命令后再继续" >> $GITHUB_STEP_SUMMARY
             echo "- **⚠️ 重要: 此工作流因冲突而失败，需要手动解决冲突后才能继续**" >> $GITHUB_STEP_SUMMARY
           else
             echo "⚠️ **状态:** 工作流执行异常" >> $GITHUB_STEP_SUMMARY
