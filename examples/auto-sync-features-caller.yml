@@ -1,0 +1,20 @@
+# 复制到业务仓 .github/workflows/auto-sync-features-to-dev.yml
+# checkout / push 使用 GH_TOKEN（PAT），caller 无需 contents: write
+
+name: Auto Sync Features to Dev
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - 'feature-*'
+
+jobs:
+  sync-dev:
+    uses: iot-daci/template/.github/workflows/auto-sync-features.yml@main
+    secrets:
+      GH_TOKEN: ${{ secrets.GH_TOKEN }}
+    with:
+      branch_pattern: feature-*
+      include_main: true
+      force_recreate_dev: false

@@ -2,9 +2,34 @@ name: Auto Sync All Features to Dev
 
 on:
   workflow_call:
+    inputs:
+      branch_pattern:
+        description: 'Remote branch glob to merge (without origin/), e.g. feature-*'
+        type: string
+        default: 'feature-*'
+      include_main:
+        description: 'Merge base branch into dev on each sync'
+        type: boolean
+        default: true
+      base_branch:
+        description: 'Base branch used when creating or recreating dev'
+        type: string
+        default: 'main'
+      target_branch:
+        description: 'Integration branch to update'
+        type: string
+        default: 'dev'
+      force_recreate_dev:
+        description: 'Recreate dev from base_branch before merging (use after deleting remote dev)'
+        type: boolean
+        default: false
     secrets:
       GH_TOKEN:
         required: true
+
+concurrency:
+  group: auto-sync-dev-${{ github.repository }}
+  cancel-in-progress: false
 
 jobs:
   sync-all-features-to-dev:
@@ -16,7 +41,7 @@ jobs:
         with:
           token: ${{ secrets.GH_TOKEN }}
           fetch-depth: 0
-          
+
       - name: Record build start time
         run: echo "BUILD_START_TIME=$(date +%s)" >> $GITHUB_ENV
 
@@ -24,47 +49,99 @@ jobs:
         run: |
           git config user.name "Auto Merge Bot"
           git config user.email "auto-merge@users.noreply.github.com"
-          echo ${{ secrets.GH_TOKEN }} | gh auth login --with-token
+
+      - name: Fetch remote branches
+        run: git fetch origin --prune
 
       - name: Get all branches to merge
         id: get-branches
+        env:
+          BRANCH_PATTERN: ${{ inputs.branch_pattern }}
+          INCLUDE_MAIN: ${{ inputs.include_main }}
+          BASE_BRANCH: ${{ inputs.base_branch }}
+        shell: bash
         run: |
-          # 获取所有远程 feature-* 分支
-          git fetch origin
-          FEATURE_BRANCHES=$(git branch -r | grep -E 'origin/feature-' | sed 's/origin\///' | tr '\n' ' ')
-          
-          # 添加 main 分支到合并列表
-          ALL_BRANCHES_TO_MERGE="$FEATURE_BRANCHES main"
-          
-          # 去除重复和空值
-          ALL_BRANCHES_TO_MERGE=$(echo "$ALL_BRANCHES_TO_MERGE" | tr ' ' '\n' | sort -u | tr '\n' ' ')
-          
-          if [ -z "$FEATURE_BRANCHES" ] && [ -z "$ALL_BRANCHES_TO_MERGE" ]; then
-            echo "没有找到需要合并的分支"
-            echo "branch_count=0" >> $GITHUB_OUTPUT
-            echo "branch_list=" >> $GITHUB_OUTPUT
-          else
-            BRANCH_COUNT=$(echo "$ALL_BRANCHES_TO_MERGE" | wc -w)
-            echo "找到 $BRANCH_COUNT 个需要合并的分支: $ALL_BRANCHES_TO_MERGE"
-            echo "branch_count=$BRANCH_COUNT" >> $GITHUB_OUTPUT
-            echo "branch_list=$ALL_BRANCHES_TO_MERGE" >> $GITHUB_OUTPUT
+          set -euo pipefail
+
+          mapfile -t FEATURE_BRANCHES < <(
+            git for-each-ref --format='%(refname:short)' "refs/remotes/origin/${BRANCH_PATTERN}" \
+              | sed 's|^origin/||' \
+              | grep -vxF "$BASE_BRANCH" || true
+          )
+
+          # Oldest commit first; base branch is merged separately and always goes first
+          sort_branches_by_commit_time() {
+            local branch ts
+            for branch in "$@"; do
+              ts=$(git log -1 --format=%ct "origin/$branch" 2>/dev/null || echo 0)
+              printf '%s %s\n' "$ts" "$branch"
+            done | sort -n -k1,1 | awk '{print $2}'
+          }
+
+          SORTED_FEATURES=()
+          if ((${#FEATURE_BRANCHES[@]} > 0)); then
+            mapfile -t SORTED_FEATURES < <(sort_branches_by_commit_time "${FEATURE_BRANCHES[@]}")
           fi
+
+          BRANCHES=()
+          if [ "$INCLUDE_MAIN" = "true" ]; then
+            BRANCHES+=("$BASE_BRANCH")
+          fi
+          if ((${#SORTED_FEATURES[@]} > 0)); then
+            BRANCHES+=("${SORTED_FEATURES[@]}")
+          fi
+
+          FEATURE_COUNT=${#SORTED_FEATURES[@]}
+          BRANCH_COUNT=${#BRANCHES[@]}
+
+          if [ "$BRANCH_COUNT" -eq 0 ]; then
+            echo "没有找到需要合并的分支（pattern=${BRANCH_PATTERN}, include_main=${INCLUDE_MAIN}）"
+            echo "branch_count=0" >> "$GITHUB_OUTPUT"
+            echo "feature_count=0" >> "$GITHUB_OUTPUT"
+            echo "branch_list=" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          BRANCH_LIST=$(printf '%s ' "${BRANCHES[@]}")
+          echo "找到 ${BRANCH_COUNT} 个需要合并的分支（feature: ${FEATURE_COUNT}）: ${BRANCH_LIST}"
+          echo "branch_count=${BRANCH_COUNT}" >> "$GITHUB_OUTPUT"
+          echo "feature_count=${FEATURE_COUNT}" >> "$GITHUB_OUTPUT"
+          echo "branch_list=${BRANCH_LIST}" >> "$GITHUB_OUTPUT"
 
       - name: Prepare dev branch
         id: prepare-dev
+        env:
+          BASE_BRANCH: ${{ inputs.base_branch }}
+          TARGET_BRANCH: ${{ inputs.target_branch }}
+          FORCE_RECREATE_DEV: ${{ inputs.force_recreate_dev }}
+        shell: bash
         run: |
-          # 检查 dev 分支是否存在
-          if git ls-remote --exit-code --heads origin dev; then
-            echo "dev 分支存在，直接使用"
-            git checkout dev
-            git pull origin dev
-            echo "use_existing_dev=true" >> $GITHUB_OUTPUT
+          set -euo pipefail
+
+          git fetch origin "$BASE_BRANCH"
+          git checkout "$BASE_BRANCH"
+          git pull origin "$BASE_BRANCH"
+
+          if [ "$FORCE_RECREATE_DEV" = "true" ]; then
+            echo "force_recreate_dev=true：从 ${BASE_BRANCH} 重建 ${TARGET_BRANCH}"
+            git checkout -B "$TARGET_BRANCH"
+            echo "use_existing_dev=false" >> "$GITHUB_OUTPUT"
+            echo "recreated_dev=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          if git ls-remote --exit-code --heads origin "$TARGET_BRANCH" >/dev/null 2>&1; then
+            echo "${TARGET_BRANCH} 分支存在，直接使用"
+            git fetch origin "$TARGET_BRANCH"
+            git checkout "$TARGET_BRANCH"
+            git pull origin "$TARGET_BRANCH"
+            echo "use_existing_dev=true" >> "$GITHUB_OUTPUT"
+            echo "recreated_dev=false" >> "$GITHUB_OUTPUT"
           else
-            echo "dev 分支不存在，从 main 创建"
-            git checkout main
-            git pull origin main
-            git checkout -b dev
-            echo "use_existing_dev=false" >> $GITHUB_OUTPUT
+            echo "${TARGET_BRANCH} 分支不存在，从 ${BASE_BRANCH} 创建"
+            git checkout -B "$TARGET_BRANCH"
+            echo "use_existing_dev=false" >> "$GITHUB_OUTPUT"
+            echo "recreated_dev=true" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Merge all branches
@@ -72,223 +149,286 @@ jobs:
         id: merge-branches
         env:
           ALL_BRANCHES: ${{ steps.get-branches.outputs.branch_list }}
+          BASE_BRANCH: ${{ inputs.base_branch }}
+          TARGET_BRANCH: ${{ inputs.target_branch }}
+        shell: bash
         run: |
-          echo "🔄 合并所有分支到 dev..."
-          echo "要合并的分支: $ALL_BRANCHES"
-          
+          set -euo pipefail
+
+          echo "🔄 合并所有分支到 ${TARGET_BRANCH}..."
+          echo "合并顺序（${BASE_BRANCH} 优先，feature 按 commit 时间从旧到新）: $ALL_BRANCHES"
+
+          read -r -a BRANCHES <<< "$ALL_BRANCHES"
+
           MERGE_SUCCESS="true"
           CONFLICT_BRANCHES=""
           MERGED_BRANCHES=""
           SKIPPED_BRANCHES=""
+          PENDING_BRANCHES=""
           CONFLICT_DETAILS=""
-          
-          for branch in $ALL_BRANCHES; do
+
+          for index in "${!BRANCHES[@]}"; do
+            branch="${BRANCHES[$index]}"
             echo "--------------------------------------------------"
-            echo "📦 处理分支: $branch"
-            
-            # 确保获取最新的分支
-            git fetch origin $branch
-            
-            # 尝试合并
-            if git merge origin/$branch --no-ff -m "Auto-merge: $branch → dev"; then
-              # 检查是否有实际变更
-              if git diff HEAD@{1} HEAD --quiet; then
+            echo "📦 处理分支 ($((index + 1))/${#BRANCHES[@]}): $branch"
+
+            HEAD_BEFORE=$(git rev-parse HEAD)
+
+            if git merge "origin/$branch" --no-ff -m "Auto-merge: $branch → ${TARGET_BRANCH}"; then
+              HEAD_AFTER=$(git rev-parse HEAD)
+              if [ "$HEAD_BEFORE" = "$HEAD_AFTER" ]; then
                 echo "ℹ️ $branch 无新变更（Already up-to-date）"
-                SKIPPED_BRANCHES="$SKIPPED_BRANCHES $branch"
+                SKIPPED_BRANCHES+=" $branch"
               else
                 echo "✅ $branch 合并成功（有新变更）"
-                MERGED_BRANCHES="$MERGED_BRANCHES $branch"
+                MERGED_BRANCHES+=" $branch"
               fi
             else
-              echo "❌ $branch 合并冲突"
+              echo "❌ $branch 合并冲突，停止后续分支合并"
               MERGE_SUCCESS="false"
-              CONFLICT_BRANCHES="$CONFLICT_BRANCHES $branch"
-              
-              # 记录冲突文件
+              CONFLICT_BRANCHES+=" $branch"
+
               CONFLICT_FILES=$(git diff --name-only --diff-filter=U 2>/dev/null || echo "无法获取冲突文件")
               echo "冲突文件: $CONFLICT_FILES"
-              
-              # 保存冲突详情
+
               if [ -n "$CONFLICT_DETAILS" ]; then
-                CONFLICT_DETAILS="$CONFLICT_DETAILS\n"
+                CONFLICT_DETAILS+=$'\n'
               fi
-              CONFLICT_DETAILS="${CONFLICT_DETAILS}分支 \`$branch\`: $CONFLICT_FILES"
-              
-              # 中止合并
+              CONFLICT_DETAILS+="分支 \`$branch\`: $CONFLICT_FILES"
+
               git merge --abort
+
+              if (( index + 1 < ${#BRANCHES[@]} )); then
+                PENDING_BRANCHES=$(printf ' %s' "${BRANCHES[@]:index+1}")
+              fi
+              break
             fi
           done
-          
-          echo "merge_success=$MERGE_SUCCESS" >> $GITHUB_OUTPUT
-          echo "conflict_branches=$CONFLICT_BRANCHES" >> $GITHUB_OUTPUT
-          echo "merged_branches=$MERGED_BRANCHES" >> $GITHUB_OUTPUT
-          echo "skipped_branches=$SKIPPED_BRANCHES" >> $GITHUB_OUTPUT
-          echo "conflict_details<<EOF" >> $GITHUB_OUTPUT
-          echo -e "$CONFLICT_DETAILS" >> $GITHUB_OUTPUT
-          echo "EOF" >> $GITHUB_OUTPUT
-          
+
+          {
+            echo "merge_success=$MERGE_SUCCESS"
+            echo "conflict_branches=$CONFLICT_BRANCHES"
+            echo "merged_branches=$MERGED_BRANCHES"
+            echo "skipped_branches=$SKIPPED_BRANCHES"
+            echo "pending_branches=$PENDING_BRANCHES"
+            echo "conflict_details<<EOF"
+            echo -e "$CONFLICT_DETAILS"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
           if [ "$MERGE_SUCCESS" = "true" ]; then
             echo "🎉 所有分支处理完成"
-            echo "有变更的: $MERGED_BRANCHES"
-            echo "无变更的: $SKIPPED_BRANCHES"
+            echo "有变更的:$MERGED_BRANCHES"
+            echo "无变更的:$SKIPPED_BRANCHES"
           else
-            echo "⚠️ 部分分支合并时发生冲突"
-            # 关键：冲突时立即退出并失败
+            echo "⚠️ 合并冲突，已停止后续分支"
+            echo "已成功合并:$MERGED_BRANCHES"
+            echo "冲突分支:$CONFLICT_BRANCHES"
+            echo "未尝试合并:$PENDING_BRANCHES"
             echo "::error::合并冲突，请查看 Summary 了解详情"
             exit 1
           fi
 
       - name: Push dev branch
-        if: steps.get-branches.outputs.branch_count != '0' && steps.merge-branches.outputs.merge_success == 'true'
+        if: success() && steps.get-branches.outputs.branch_count != '0'
         env:
+          TARGET_BRANCH: ${{ inputs.target_branch }}
+          FORCE_RECREATE_DEV: ${{ inputs.force_recreate_dev }}
+          RECREATED_DEV: ${{ steps.prepare-dev.outputs.recreated_dev }}
           MERGED_BRANCHES: ${{ steps.merge-branches.outputs.merged_branches }}
           SKIPPED_BRANCHES: ${{ steps.merge-branches.outputs.skipped_branches }}
+        shell: bash
         run: |
-          # 检查是否有实际变更需要推送
-          if git diff origin/dev HEAD --quiet; then
+          set -euo pipefail
+
+          REMOTE_REF="origin/${TARGET_BRANCH}"
+          if git rev-parse --verify "$REMOTE_REF" >/dev/null 2>&1 \
+            && git diff "$REMOTE_REF" HEAD --quiet; then
             echo "ℹ️ 没有实际变更，跳过推送"
-          else
-            echo "🚀 推送 dev 分支..."
-            git push origin dev
-            
-            echo "✨ dev 分支更新完成"
-            echo "基于分支: ${{ steps.prepare-dev.outputs.use_existing_dev == 'true' && '现有 dev' || 'main' }}"
-            echo "实际合并的分支: $MERGED_BRANCHES"
-            echo "跳过的分支（已合并或无变更）: $SKIPPED_BRANCHES"
-            echo "时间: $(date)"
+            exit 0
           fi
 
-      - name: Handle merge conflicts (info only)
-        if: steps.get-branches.outputs.branch_count != '0' && steps.merge-branches.outputs.merge_success == 'false'
-        env:
-          CONFLICT_BRANCHES: ${{ steps.merge-branches.outputs.conflict_branches }}
-          MERGED_BRANCHES: ${{ steps.merge-branches.outputs.merged_branches }}
-          SKIPPED_BRANCHES: ${{ steps.merge-branches.outputs.skipped_branches }}
-        run: |
-          echo "📝 冲突处理信息..."
-          
-          # 先推送已成功合并的部分（如果有）
-          if [ -n "$MERGED_BRANCHES" ]; then
-            echo "推送已成功合并的部分..."
-            git push origin dev
-            echo "✅ 已推送成功合并的部分"
+          echo "🚀 推送 ${TARGET_BRANCH} 分支..."
+          if [ "$FORCE_RECREATE_DEV" = "true" ] || [ "$RECREATED_DEV" = "true" ]; then
+            git push --force-with-lease origin "HEAD:${TARGET_BRANCH}"
+          else
+            git push origin "HEAD:${TARGET_BRANCH}"
           fi
-          
+
+          echo "✨ ${TARGET_BRANCH} 分支更新完成"
+          echo "实际合并的分支:${MERGED_BRANCHES}"
+          echo "跳过的分支（已合并或无变更）:${SKIPPED_BRANCHES}"
+          echo "时间: $(date)"
+
+      - name: Push partial merge on conflict
+        if: failure() && steps.get-branches.outputs.branch_count != '0' && steps.merge-branches.outputs.merge_success == 'false'
+        env:
+          TARGET_BRANCH: ${{ inputs.target_branch }}
+          FORCE_RECREATE_DEV: ${{ inputs.force_recreate_dev }}
+          RECREATED_DEV: ${{ steps.prepare-dev.outputs.recreated_dev }}
+          MERGED_BRANCHES: ${{ steps.merge-branches.outputs.merged_branches }}
+          CONFLICT_BRANCHES: ${{ steps.merge-branches.outputs.conflict_branches }}
+          PENDING_BRANCHES: ${{ steps.merge-branches.outputs.pending_branches }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          echo "📝 冲突处理：推送已成功合并的部分..."
+
+          TRIMMED_MERGED="${MERGED_BRANCHES# }"
+          if [ -z "$TRIMMED_MERGED" ]; then
+            echo "ℹ️ 冲突前无成功合并，跳过推送"
+          else
+            REMOTE_REF="origin/${TARGET_BRANCH}"
+            if git rev-parse --verify "$REMOTE_REF" >/dev/null 2>&1 \
+              && git diff "$REMOTE_REF" HEAD --quiet; then
+              echo "ℹ️ 本地 ${TARGET_BRANCH} 与远程一致，跳过推送"
+            else
+              if [ "$FORCE_RECREATE_DEV" = "true" ] || [ "$RECREATED_DEV" = "true" ]; then
+                git push --force-with-lease origin "HEAD:${TARGET_BRANCH}"
+              else
+                git push origin "HEAD:${TARGET_BRANCH}"
+              fi
+              echo "✅ 已推送冲突前成功合并的部分"
+            fi
+          fi
+
           echo "⚠️ 部分分支合并冲突"
-          echo "已成功合并: $MERGED_BRANCHES"
-          echo "冲突分支: $CONFLICT_BRANCHES"
+          echo "已成功合并:${MERGED_BRANCHES}"
+          echo "冲突分支:${CONFLICT_BRANCHES}"
+          echo "未尝试合并:${PENDING_BRANCHES}"
           echo "请查看 Summary 了解详细冲突信息和解决方法"
 
-      - name: No branches notification
+      - name: Ensure dev branch exists
         if: steps.get-branches.outputs.branch_count == '0'
+        env:
+          TARGET_BRANCH: ${{ inputs.target_branch }}
+          RECREATED_DEV: ${{ steps.prepare-dev.outputs.recreated_dev }}
+        shell: bash
         run: |
-          echo "📭 没有找到需要合并的分支"
-          
-          # 如果 dev 分支不存在，创建一个空的（基于 main）
-          if [ "${{ steps.prepare-dev.outputs.use_existing_dev }}" = "false" ]; then
-            echo "创建空的 dev 分支..."
-            git push -u origin dev
-            echo "✅ 已创建 dev 分支（无 feature 内容）"
+          set -euo pipefail
+
+          echo "📭 没有 feature 分支需要合并"
+
+          if [ "$RECREATED_DEV" = "true" ]; then
+            echo "推送新建 ${TARGET_BRANCH} 分支..."
+            git push --force-with-lease origin "HEAD:${TARGET_BRANCH}"
+            echo "✅ 已创建 ${TARGET_BRANCH} 分支（基于 prepare 步骤）"
           else
-            echo "ℹ️ dev 分支已存在，无需操作"
+            echo "ℹ️ ${TARGET_BRANCH} 分支已存在，无需操作"
           fi
 
       - name: Summary
         if: always()
         env:
-          JOB_STATUS: ${{ job.status }}
           BUILD_START_TIME: ${{ env.BUILD_START_TIME }}
+          BRANCH_PATTERN: ${{ inputs.branch_pattern }}
+          INCLUDE_MAIN: ${{ inputs.include_main }}
+          BASE_BRANCH: ${{ inputs.base_branch }}
+          TARGET_BRANCH: ${{ inputs.target_branch }}
+          FORCE_RECREATE_DEV: ${{ inputs.force_recreate_dev }}
+        shell: bash
         run: |
+          set -euo pipefail
+
           BUILD_END_TIME=$(date +%s)
           BUILD_START=${BUILD_START_TIME:-$BUILD_END_TIME}
           BUILD_DURATION=$((BUILD_END_TIME - BUILD_START))
           BUILD_MINUTES=$((BUILD_DURATION / 60))
           BUILD_SECONDS=$((BUILD_DURATION % 60))
-          
-          echo "## 🔄 Auto Sync Summary" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          
-          # 根据不同的情况显示不同的状态
-          if [ "${{ steps.get-branches.outputs.branch_count }}" = "0" ]; then
-            echo "ℹ️ **状态:** 没有找到需要合并的分支" >> $GITHUB_STEP_SUMMARY
-            echo "" >> $GITHUB_STEP_SUMMARY
-            if [ "${{ steps.prepare-dev.outputs.use_existing_dev }}" = "false" ]; then
-              echo "✅ 已创建空的 dev 分支（基于 main）" >> $GITHUB_STEP_SUMMARY
+
+          {
+            echo "## 🔄 Auto Sync Summary"
+            echo ""
+            echo "**配置:** pattern=\`${BRANCH_PATTERN}\`, include_main=\`${INCLUDE_MAIN}\`, base=\`${BASE_BRANCH}\`, target=\`${TARGET_BRANCH}\`, force_recreate=\`${FORCE_RECREATE_DEV}\`"
+            echo ""
+
+            if [ "${{ steps.get-branches.outputs.branch_count }}" = "0" ]; then
+              echo "ℹ️ **状态:** 没有 feature 分支需要合并"
+              echo ""
+              if [ "${{ steps.prepare-dev.outputs.recreated_dev }}" = "true" ]; then
+                echo "✅ 已确保 \`${TARGET_BRANCH}\` 分支存在（基于 \`${BASE_BRANCH}\`）"
+              else
+                echo "ℹ️ \`${TARGET_BRANCH}\` 分支已存在，无需操作"
+              fi
+            elif [ "${{ steps.merge-branches.outputs.merge_success }}" = "true" ]; then
+              echo "✅ **状态:** 所有分支合并成功"
+              echo ""
+              echo "**合并结果:**"
+              if [ -n "${{ steps.merge-branches.outputs.merged_branches }}" ]; then
+                echo "- ✅ 成功合并: \`${{ steps.merge-branches.outputs.merged_branches }}\`"
+              fi
+              if [ -n "${{ steps.merge-branches.outputs.skipped_branches }}" ]; then
+                echo "- ⏭️ 无变更跳过: \`${{ steps.merge-branches.outputs.skipped_branches }}\`"
+              fi
+              echo ""
+              echo "**Dev 分支信息:**"
+              if [ "${{ steps.prepare-dev.outputs.recreated_dev }}" = "true" ]; then
+                echo "- 基于: \`${BASE_BRANCH}\`（新建/重建）"
+              else
+                echo "- 基于: 现有 \`${TARGET_BRANCH}\`"
+              fi
+              echo "- 已推送到远程仓库"
+            elif [ "${{ steps.merge-branches.outputs.merge_success }}" = "false" ]; then
+              echo "❌ **状态:** 合并冲突 - Workflow 失败"
+              echo ""
+              echo "**合并结果:**"
+              if [ -n "${{ steps.merge-branches.outputs.merged_branches }}" ]; then
+                echo "- ✅ 冲突前已合并: \`${{ steps.merge-branches.outputs.merged_branches }}\`"
+                echo "  （已通过 Push partial merge 步骤推送到 \`${TARGET_BRANCH}\`）"
+              fi
+              if [ -n "${{ steps.merge-branches.outputs.skipped_branches }}" ]; then
+                echo "- ⏭️ 无变更跳过: \`${{ steps.merge-branches.outputs.skipped_branches }}\`"
+              fi
+              if [ -n "${{ steps.merge-branches.outputs.conflict_branches }}" ]; then
+                echo "- ❌ 冲突分支: \`${{ steps.merge-branches.outputs.conflict_branches }}\`"
+              fi
+              if [ -n "${{ steps.merge-branches.outputs.pending_branches }}" ]; then
+                echo "- ⏸️ 未尝试合并（因前序冲突已停止）: \`${{ steps.merge-branches.outputs.pending_branches }}\`"
+              fi
+              echo ""
+              echo "**冲突详情:**"
+              echo '```'
+              echo "${{ steps.merge-branches.outputs.conflict_details }}"
+              echo '```'
+              echo ""
+              echo "**解决方案:**"
+              echo "1. 冲突前已成功合并的部分已推送到 \`${TARGET_BRANCH}\`（如有）"
+              echo "2. 先解决冲突分支，再重新运行 workflow 合并剩余分支"
+              echo ""
+              echo "**⚠️ 同步前请先重置本地 dev（必读）**"
+              echo "若服务端 \`${TARGET_BRANCH}\` 曾被删除并重建（或历史与本地不一致），**必须先删除本地 \`${TARGET_BRANCH}\` 再拉取**，否则 \`git pull\` 可能失败或产生错误合并。"
+              echo '```bash'
+              echo "git checkout ${BASE_BRANCH}"
+              echo "git branch -D ${TARGET_BRANCH}"
+              echo "git fetch origin"
+              echo "git checkout -b ${TARGET_BRANCH} origin/${TARGET_BRANCH}"
+              echo '```'
+              echo ""
+              echo "**解决冲突:**"
+              echo '```bash'
+              echo "git checkout ${TARGET_BRANCH}"
+              echo "git pull origin ${TARGET_BRANCH}"
+              echo "git merge origin/feature-xxx   # 替换为上方冲突分支名"
+              echo "git status"
+              echo "# 编辑冲突文件..."
+              echo "git add <冲突文件>"
+              echo 'git commit -m "Resolve merge conflicts with feature-xxx"'
+              echo "git push origin ${TARGET_BRANCH}"
+              echo '```'
+              echo ""
+              echo "**提示:**"
+              echo "- 解决冲突后重新运行 workflow，会合并 \`pending\` 中的剩余分支"
+              echo "- 使用 \`force_recreate_dev: true\` 可从 \`${BASE_BRANCH}\` 重建 \`${TARGET_BRANCH}\`（开发者需重置本地分支）"
             else
-              echo "ℹ️ dev 分支已存在，无需操作" >> $GITHUB_STEP_SUMMARY
+              echo "⚠️ **状态:** 工作流执行异常"
             fi
-          elif [ "${{ steps.merge-branches.outputs.merge_success }}" = "true" ]; then
-            echo "✅ **状态:** 所有分支合并成功！" >> $GITHUB_STEP_SUMMARY
-            echo "" >> $GITHUB_STEP_SUMMARY
-            echo "**合并结果:**" >> $GITHUB_STEP_SUMMARY
-            if [ -n "${{ steps.merge-branches.outputs.merged_branches }}" ]; then
-              echo "- ✅ 成功合并的分支: \`${{ steps.merge-branches.outputs.merged_branches }}\`" >> $GITHUB_STEP_SUMMARY
-            fi
-            if [ -n "${{ steps.merge-branches.outputs.skipped_branches }}" ]; then
-              echo "- ⏭️ 跳过的分支（无变更）: \`${{ steps.merge-branches.outputs.skipped_branches }}\`" >> $GITHUB_STEP_SUMMARY
-            fi
-            echo "" >> $GITHUB_STEP_SUMMARY
-            echo "**Dev 分支信息:**" >> $GITHUB_STEP_SUMMARY
-            echo "- 基于: \`${{ steps.prepare-dev.outputs.use_existing_dev == 'true' && '现有 dev' || 'main' }}\`" >> $GITHUB_STEP_SUMMARY
-            echo "- 已推送到远程仓库" >> $GITHUB_STEP_SUMMARY
-          elif [ "${{ steps.merge-branches.outputs.merge_success }}" = "false" ]; then
-            echo "❌ **状态:** ❌ 合并冲突 - Workflow 失败" >> $GITHUB_STEP_SUMMARY
-            echo "" >> $GITHUB_STEP_SUMMARY
-            echo "**合并结果:**" >> $GITHUB_STEP_SUMMARY
-            if [ -n "${{ steps.merge-branches.outputs.merged_branches }}" ]; then
-              echo "- ✅ 成功合并的分支: \`${{ steps.merge-branches.outputs.merged_branches }}\`" >> $GITHUB_STEP_SUMMARY
-              echo "  (已推送到 dev 分支)" >> $GITHUB_STEP_SUMMARY
-            fi
-            if [ -n "${{ steps.merge-branches.outputs.skipped_branches }}" ]; then
-              echo "- ⏭️ 跳过的分支（无变更）: \`${{ steps.merge-branches.outputs.skipped_branches }}\`" >> $GITHUB_STEP_SUMMARY
-            fi
-            if [ -n "${{ steps.merge-branches.outputs.conflict_branches }}" ]; then
-              echo "- ❌ 冲突分支: \`${{ steps.merge-branches.outputs.conflict_branches }}\`" >> $GITHUB_STEP_SUMMARY
-            fi
-            echo "" >> $GITHUB_STEP_SUMMARY
-            echo "**冲突详情:**" >> $GITHUB_STEP_SUMMARY
-            echo '```' >> $GITHUB_STEP_SUMMARY
-            echo "${{ steps.merge-branches.outputs.conflict_details }}" >> $GITHUB_STEP_SUMMARY
-            echo '```' >> $GITHUB_STEP_SUMMARY
-            echo "" >> $GITHUB_STEP_SUMMARY
-            echo "**解决方案:**" >> $GITHUB_STEP_SUMMARY
-            echo "1. ✅ 已成功合并的部分已推送到 \`dev\` 分支" >> $GITHUB_STEP_SUMMARY
-            echo "2. ❌ 请按以下步骤解决冲突分支:" >> $GITHUB_STEP_SUMMARY
-            echo "" >> $GITHUB_STEP_SUMMARY
-            echo "**解决冲突的方法:**" >> $GITHUB_STEP_SUMMARY
-            echo '```bash' >> $GITHUB_STEP_SUMMARY
-            echo "# 1. 检出 dev 分支" >> $GITHUB_STEP_SUMMARY
-            echo "git checkout dev" >> $GITHUB_STEP_SUMMARY
-            echo "git pull origin dev" >> $GITHUB_STEP_SUMMARY
-            echo "" >> $GITHUB_STEP_SUMMARY
-            echo "# 2. 合并冲突分支（例如: feature-xxx）" >> $GITHUB_STEP_SUMMARY
-            echo "git merge origin/feature-xxx" >> $GITHUB_STEP_SUMMARY
-            echo "" >> $GITHUB_STEP_SUMMARY
-            echo "# 3. 查看冲突文件" >> $GITHUB_STEP_SUMMARY
-            echo "git status" >> $GITHUB_STEP_SUMMARY
-            echo "" >> $GITHUB_STEP_SUMMARY
-            echo "# 4. 手动编辑冲突文件，解决冲突标记（<<<<<<, ======, >>>>>>）" >> $GITHUB_STEP_SUMMARY
-            echo "# 编辑冲突文件..." >> $GITHUB_STEP_SUMMARY
-            echo "" >> $GITHUB_STEP_SUMMARY
-            echo "# 5. 标记冲突已解决并提交" >> $GITHUB_STEP_SUMMARY
-            echo "git add <冲突文件>" >> $GITHUB_STEP_SUMMARY
-            echo "git commit -m \"Resolve merge conflicts with feature-xxx\"" >> $GITHUB_STEP_SUMMARY
-            echo "" >> $GITHUB_STEP_SUMMARY
-            echo "# 6. 推送到远程" >> $GITHUB_STEP_SUMMARY
-            echo "git push origin dev" >> $GITHUB_STEP_SUMMARY
-            echo '```' >> $GITHUB_STEP_SUMMARY
-            echo "" >> $GITHUB_STEP_SUMMARY
-            echo "**提示:**" >> $GITHUB_STEP_SUMMARY
-            echo "- 冲突文件位置已在上方冲突详情中列出" >> $GITHUB_STEP_SUMMARY
-            echo "- 解决冲突后，可以重新运行此工作流来合并剩余分支" >> $GITHUB_STEP_SUMMARY
-            echo "- **⚠️ 重要: 此工作流因冲突而失败，需要手动解决冲突后才能继续**" >> $GITHUB_STEP_SUMMARY
-          else
-            echo "⚠️ **状态:** 工作流执行异常" >> $GITHUB_STEP_SUMMARY
-          fi
-          
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**执行信息:**" >> $GITHUB_STEP_SUMMARY
-          echo "- 分支数量: \`${{ steps.get-branches.outputs.branch_count }}\`" >> $GITHUB_STEP_SUMMARY
-          echo "- 执行时长: \`${BUILD_MINUTES}m ${BUILD_SECONDS}s\`" >> $GITHUB_STEP_SUMMARY
-          echo "- Commit: \`${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
-          echo "- Ref: \`${{ github.ref }}\`" >> $GITHUB_STEP_SUMMARY
+
+            echo ""
+            echo "**执行信息:**"
+            echo "- Feature 分支数: \`${{ steps.get-branches.outputs.feature_count }}\`"
+            echo "- 合并分支总数: \`${{ steps.get-branches.outputs.branch_count }}\`"
+            echo "- 执行时长: \`${BUILD_MINUTES}m ${BUILD_SECONDS}s\`"
+            echo "- Commit: \`${{ github.sha }}\`"
+            echo "- Ref: \`${{ github.ref }}\`"
+          } >> "$GITHUB_STEP_SUMMARY"
