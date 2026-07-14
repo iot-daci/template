@@ -14,8 +14,70 @@ GitHub Actions 可复用 workflow 模板库。业务仓库通过 `workflow_call`
 | `cpp.yml` | C++ 构建 |
 | `artifact-zip.yml` | 产物打包 |
 | `auto-sync-features.yml` | 多 feature 分支合并到 dev |
+| **`anxiaolong-scan.yml`** | **安小龙 AI 代码审计（打包源码 → 上传 → 轮询 → 下载结果 artifact）** |
 | **`claude-pr-review.yml`** | **PR Code Review（Claude，/review 触发，预先生成 diff 文件）** |
 | **`claude-pr-review-auto.yml`** | **PR Code Review（Claude，/review 触发，由 Claude 自行通过 gh 拉取 diff）** |
+
+## 安小龙 AI 代码审计
+
+可复用 workflow：将业务仓源码打包上传至安小龙，创建扫描任务并轮询至完成，结果文件以 Actions artifact 保留。
+
+### 业务仓库接入
+
+1. 配置 Secrets（均必填）：
+   - `AXL_SERVER_URL`：安小龙基础地址（仅 `https://` 主机，不含接口路径）
+   - `AXL_API_KEY`：API Key
+   - `AXL_SKILL_ID`：技能 ID（数字）
+   - `AXL_ALLOWED_HOSTS`：允许调用的域名白名单（逗号分隔，须包含 `AXL_SERVER_URL` 主机）
+2. 复制 [examples/anxiaolong-scan-caller.yml](examples/anxiaolong-scan-caller.yml) 到业务仓 `.github/workflows/`
+
+```yaml
+on:
+  push:
+    branches: ["main"]
+  workflow_dispatch:
+
+jobs:
+  anxiaolong-scan:
+    permissions:
+      contents: read
+    uses: YOUR_ORG/template/.github/workflows/anxiaolong-scan.yml@main
+    secrets:
+      AXL_SERVER_URL: ${{ secrets.AXL_SERVER_URL }}
+      AXL_API_KEY: ${{ secrets.AXL_API_KEY }}
+      AXL_SKILL_ID: ${{ secrets.AXL_SKILL_ID }}
+      AXL_ALLOWED_HOSTS: ${{ secrets.AXL_ALLOWED_HOSTS }}
+```
+
+将 `YOUR_ORG/template` 换成实际模板库路径。审计结果在 Actions **Artifacts** 中下载（默认名 `anxiaolong-scan-results`）。
+
+| input | 默认 | 说明 |
+|-------|------|------|
+| `runner_type` | `simple` | 安小龙 runner 类型 |
+| `enable_thinking` | `false` | 是否开启 thinking |
+| `source_name` | `github-actions` | 任务来源标识 |
+| `artifact_name` | `anxiaolong-scan-results` | 结果 artifact 名称 |
+| `artifact_retention_days` | `7` | artifact 保留天数 |
+| `timeout_minutes` | `120` | Job 超时（分钟） |
+| `max_package_mb` | `500` | 源码包最大体积（MB） |
+| `max_single_file_mb` | `50` | 单个源文件最大体积（MB） |
+| `max_result_files` | `20` | 结果文件数量上限 |
+| `max_result_file_mb` | `30` | 单个结果文件最大体积（MB） |
+| `max_total_result_mb` | `100` | 结果文件总大小上限（MB） |
+| `allowed_result_extensions` | `.docx,.xlsx,.pdf,.txt,.json` | 允许下载的扩展名 |
+| `user_input_prefix` | （默认审计提示） | 创建任务时的用户提示前缀 |
+
+| secret | 必填 | 说明 |
+|--------|------|------|
+| `AXL_SERVER_URL` | 是 | 安小龙 `https://` 基础地址 |
+| `AXL_API_KEY` | 是 | API Key |
+| `AXL_SKILL_ID` | 是 | 技能 ID |
+| `AXL_ALLOWED_HOSTS` | 是 | 域名白名单 |
+
+| output | 说明 |
+|--------|------|
+| `task_id` | 安小龙任务 ID |
+| `task_status` | 最终状态（成功时为 `FINISHED`） |
 
 ## Claude PR Review
 

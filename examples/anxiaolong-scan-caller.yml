@@ -1,0 +1,30 @@
+# 复制到业务仓库 .github/workflows/anxiaolong-scan.yml
+#
+# 前置：在仓库 Secrets 中配置
+#   AXL_SERVER_URL / AXL_API_KEY / AXL_SKILL_ID / AXL_ALLOWED_HOSTS
+#
+# 将 YOUR_ORG/template 换成实际模板库路径
+
+name: Anxiaolong AI Code Audit
+
+on:
+  push:
+    branches: ["main"]
+  workflow_dispatch:
+
+jobs:
+  anxiaolong-scan:
+    permissions:
+      contents: read
+    uses: YOUR_ORG/template/.github/workflows/anxiaolong-scan.yml@main
+    secrets:
+      AXL_SERVER_URL: ${{ secrets.AXL_SERVER_URL }}
+      AXL_API_KEY: ${{ secrets.AXL_API_KEY }}
+      AXL_SKILL_ID: ${{ secrets.AXL_SKILL_ID }}
+      AXL_ALLOWED_HOSTS: ${{ secrets.AXL_ALLOWED_HOSTS }}
+    # with:
+    #   runner_type: simple
+    #   enable_thinking: false
+    #   artifact_name: anxiaolong-scan-results
+    #   artifact_retention_days: 7
+    #   timeout_minutes: 120
