@@ -14,6 +14,11 @@ on:
       docker_image:
         type: string
         required: true
+      run_unit_tests:
+        description: 打包前是否先跑单元测试；失败则不继续打包（默认关闭）
+        type: boolean
+        required: false
+        default: false
     secrets:
       DOCKER_USER:
         required: true
@@ -21,7 +26,42 @@ on:
         required: true
 
 jobs:
+  unit-tests:
+    name: Unit tests
+    if: ${{ inputs.run_unit_tests }}
+    runs-on: ubuntu-latest
+    container:
+      image: lzk90s/java-develop-env:maven3-openjdk11
+      volumes:
+        - /root/.m2:/root/.m2
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Get cache directory path
+        id: mvn-cache-dir-path
+        run: echo "dir=/root/.m2" >>$GITHUB_OUTPUT
+
+      - name: Use cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ steps.mvn-cache-dir-path.outputs.dir }}
+          key: ${{ runner.os }}-m2-${{ hashFiles('**/pom.xml') }}
+          restore-keys: |
+            ${{ runner.os }}-m2-${{ hashFiles('**/pom.xml') }}
+            ${{ runner.os }}-m2-
+
+      - name: Init builder env
+        run: init_env.sh
+
+      - name: Run unit tests
+        run: cd ${{ inputs.workdir }} && mvn -B test
+
   build:
+    name: Build & push
+    needs: unit-tests
+    # run_unit_tests=false 时 unit-tests 为 skipped，仍继续打包；测试失败则跳过打包
+    if: ${{ always() && !cancelled() && (needs.unit-tests.result == 'success' || needs.unit-tests.result == 'skipped') }}
     runs-on: ubuntu-latest
     container:
       image: lzk90s/java-develop-env:maven3-openjdk11
