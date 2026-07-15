@@ -17,6 +17,7 @@ GitHub Actions 可复用 workflow 模板库。业务仓库通过 `workflow_call`
 | **`anxiaolong-scan.yml`** | **安小龙 AI 代码审计（打包源码 → 上传 → 轮询 → 下载结果 artifact）** |
 | **`claude-pr-review.yml`** | **PR Code Review（Claude，/review 触发，预先生成 diff 文件）** |
 | **`claude-pr-review-auto.yml`** | **PR Code Review（Claude，/review 触发，由 Claude 自行通过 gh 拉取 diff）** |
+| **`claude-feature-doc-review.yml`** | **Feature 设计文档审查（Claude，feature-* push 且 `dev-doc/docs` 变更时自动审核需求/技术方案）** |
 
 ## Auto Sync Features → Dev
 
@@ -100,6 +101,71 @@ jobs:
 将 `YOUR_ORG/template` 换成实际模板库路径。在 PR **Conversation** 发 `/review` 即可。
 
 **权限报错** `pull-requests: none`：caller job 须声明上面 `permissions`，且仓库 Actions 设为 **Read and write**。
+
+## Claude Feature Doc Review
+
+当往 **`feature-*`** 分支 push，且 **`dev-doc/docs`**（需求 PRD + 技术设计）有变更时，自动触发 Claude 审核。有关联 PR 时结论发到 PR 评论；否则发到对应 commit comment。
+
+### 业务仓库接入
+
+1. 安装 [Claude GitHub App](https://github.com/apps/claude)
+2. Secret：`ANTHROPIC_API_KEY`（代理场景可加 `ANTHROPIC_BASE_URL`）
+3. 项目根目录添加 `DOC_REVIEW.md`（可从本库 [DOC_REVIEW.md](DOC_REVIEW.md) 复制）
+4. 复制 [examples/claude-feature-doc-review-caller.yml](examples/claude-feature-doc-review-caller.yml) 到业务仓 `.github/workflows/feature-doc-claude-review.yml`
+
+```yaml
+on:
+  push:
+    branches:
+      - 'feature-*'
+    paths:
+      - 'dev-doc/docs/**'
+
+jobs:
+  claude-doc-review:
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+      id-token: write
+    uses: YOUR_ORG/template/.github/workflows/claude-feature-doc-review.yml@main
+    secrets:
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+    with:
+      before_sha: ${{ github.event.before }}
+      after_sha: ${{ github.sha }}
+      branch: ${{ github.ref_name }}
+      docs_path: dev-doc/docs
+      model: claude-sonnet-4-6
+```
+
+将 `YOUR_ORG/template` 换成实际模板库路径。文档目录若不同，改 caller 的 `paths` 与 `docs_path`。
+
+**权限**：caller 须声明上面 `permissions`（无关联 PR 时用 `contents: write` 发 commit comment），且仓库 Actions 设为 **Read and write**。
+
+| input | 默认 | 说明 |
+|-------|------|------|
+| `before_sha` | （必填） | `github.event.before` |
+| `after_sha` | （必填） | `github.sha` |
+| `branch` | （必填） | `github.ref_name` |
+| `docs_path` | `dev-doc/docs` | 设计文档目录 |
+| `base_branch` | `main` | 新建分支时对比基线 |
+| `model` | `claude-sonnet-4-6` | 与 API/代理可用模型一致 |
+| `max_turns` | `40` | 对话轮数上限 |
+| `track_progress` | `true` | 有关联 PR 时显示进度评论 |
+| `require_doc_review_md` | `true` | 是否必须有 `DOC_REVIEW.md` |
+| `extra_review_instructions` | 空 | 追加审查说明 |
+
+| secret | 必填 | 说明 |
+|--------|------|------|
+| `ANTHROPIC_API_KEY` | 是 | API Key |
+| `ANTHROPIC_BASE_URL` | 否 | 代理地址 |
+
+### 审查规范
+
+| 文件 | 说明 |
+|------|------|
+| [DOC_REVIEW.md](DOC_REVIEW.md) | 业务仓根目录，需求/技术方案审查规则（Important / Nit） |
 
 ## npm 包发布
 

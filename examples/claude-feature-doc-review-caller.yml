@@ -1,0 +1,34 @@
+# 复制到业务仓库 .github/workflows/feature-doc-claude-review.yml
+#
+# 向 feature-* 分支 push，且 dev-doc/docs 有变更时，自动触发 Claude 审核需求/技术方案
+
+name: Feature Doc Claude Review
+
+on:
+  push:
+    branches:
+      - 'feature-*'
+    paths:
+      - 'dev-doc/docs/**'
+
+jobs:
+  claude-doc-review:
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+      id-token: write
+    uses: iot-daci/template/.github/workflows/claude-feature-doc-review.yml@main
+    secrets:
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      # ANTHROPIC_BASE_URL: ${{ secrets.ANTHROPIC_BASE_URL }}
+    with:
+      before_sha: ${{ github.event.before }}
+      after_sha: ${{ github.sha }}
+      branch: ${{ github.ref_name }}
+      docs_path: dev-doc/docs
+      base_branch: main
+      model: claude-sonnet-4-6
+      max_turns: 40
+      track_progress: true
+      require_doc_review_md: true
