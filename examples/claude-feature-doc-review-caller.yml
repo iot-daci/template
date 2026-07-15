@@ -30,5 +30,4 @@ jobs:
       base_branch: main
       model: claude-sonnet-4-6
       max_turns: 40
-      track_progress: true
       require_doc_review_md: true

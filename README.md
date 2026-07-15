@@ -106,6 +106,8 @@ jobs:
 
 当往 **`feature-*`** 分支 push，且 **`dev-doc/docs`**（需求 PRD + 技术设计）有变更时，自动触发 Claude 审核。有关联 PR 时结论发到 PR 评论；否则发到对应 commit comment。
 
+> 说明：`anthropics/claude-code-action@v1` 不支持 `push` 事件，本模板改为直接调用 Claude Code CLI（headless）。
+
 ### 业务仓库接入
 
 1. 安装 [Claude GitHub App](https://github.com/apps/claude)
@@ -152,7 +154,6 @@ jobs:
 | `base_branch` | `main` | 新建分支时对比基线 |
 | `model` | `claude-sonnet-4-6` | 与 API/代理可用模型一致 |
 | `max_turns` | `40` | 对话轮数上限 |
-| `track_progress` | `true` | 有关联 PR 时显示进度评论 |
 | `require_doc_review_md` | `true` | 是否必须有 `DOC_REVIEW.md` |
 | `extra_review_instructions` | 空 | 追加审查说明 |
 

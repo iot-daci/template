@@ -38,11 +38,6 @@ on:
         type: number
         required: false
         default: 40
-      track_progress:
-        description: "若存在关联 PR，是否在 PR 上显示审查进度评论"
-        type: boolean
-        required: false
-        default: true
       require_doc_review_md:
         description: "是否要求仓库根目录存在 DOC_REVIEW.md"
         type: boolean
@@ -201,58 +196,73 @@ jobs:
           fi
           [ -f "CLAUDE.md" ] && echo "已找到 CLAUDE.md" || echo "CLAUDE.md 可选，未找到"
 
-      - name: Resolve track_progress
+      # claude-code-action@v1 不支持 push 事件（会报 Unsupported event type: push），
+      # 因此本 workflow 改为直接调用 Claude Code CLI（headless）。
+      - name: Setup Node
         if: steps.docs.outputs.has_changes == 'true'
-        id: track
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install Claude Code CLI
+        if: steps.docs.outputs.has_changes == 'true'
+        run: npm install -g @anthropic-ai/claude-code
+
+      - name: Prepare review prompt
+        if: steps.docs.outputs.has_changes == 'true'
+        env:
+          PR_NUMBER: ${{ steps.pr.outputs.pr_number }}
+          HAS_PR: ${{ steps.pr.outputs.has_pr }}
+          EXTRA_INSTRUCTIONS: ${{ inputs.extra_review_instructions }}
+          REPO: ${{ github.repository }}
         run: |
-          if [ "${{ inputs.track_progress }}" = "true" ] && [ "${{ steps.pr.outputs.has_pr }}" = "true" ]; then
-            echo "enabled=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "enabled=false" >> "$GITHUB_OUTPUT"
-          fi
+          set -euo pipefail
+          cat > .github/claude-doc-review-prompt.md <<EOF
+          REPO: ${REPO}
+          BRANCH: ${BRANCH}
+          PR_NUMBER: ${PR_NUMBER}
+          HAS_PR: ${HAS_PR}
+          DOCS_PATH: ${DOCS_PATH}
+          DIFF_LINES: ${diff_lines}
+          COMMIT_SHA: ${AFTER_SHA}
+
+          本分支为 feature 开发分支。本次 push 更新了 \`${DOCS_PATH}\`（含需求 PRD 与技术设计）。
+          请**自动审核需求文档与技术方案**，**少轮次完成**。
+
+          必读一次：
+          1. \`.github/claude-doc-meta.txt\`（变更文件清单）
+          2. \`.github/claude-doc-diff.patch\`（本次文档 diff）
+          3. 根目录 \`DOC_REVIEW.md\`（若有）
+          4. 变更涉及的完整文档正文（按 meta 中路径 Read，不要扫全库）
+
+          禁止：全库扫描、重复 gh 命令、写任何结果 JSON 文件。
+
+          ## 审查重点
+          - **需求（PRD）**：目标/范围/非目标、角色与流程、规则与约束、验收口径是否清晰完备
+          - **技术方案**：与需求是否对齐、模块边界、数据模型、接口/状态机、异常与补偿、安全与审计是否到位
+          - **交叉一致性**：需求与设计是否矛盾或遗漏；金融场景优先关注资金安全、幂等、权限、可追溯
+
+          ## 输出
+          1. 若 HAS_PR 为 true：用一条 \`gh pr comment ${PR_NUMBER}\` 发表审查总结
+          2. 若 HAS_PR 为 false：用 \`gh api\` 往当前 commit 发一条 commit comment（repos/${REPO}/commits/${AFTER_SHA}/comments），body 为审查总结
+          3. 总结首行格式：\`Important: N，Nit: M\`（无 Important 时写「无阻塞项」）
+          4. 按 DOC_REVIEW.md 区分 Important / Nit；Nit 最多 5 条；Important 尽量带 \`路径\` 或章节定位
+
+          ${EXTRA_INSTRUCTIONS}
+          EOF
 
       - name: Claude feature doc review
         if: steps.docs.outputs.has_changes == 'true'
-        uses: anthropics/claude-code-action@v1
-        with:
-          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
-          track_progress: ${{ steps.track.outputs.enabled == 'true' }}
-          prompt: |
-            REPO: ${{ github.repository }}
-            BRANCH: ${{ env.BRANCH }}
-            PR_NUMBER: ${{ steps.pr.outputs.pr_number }}
-            HAS_PR: ${{ steps.pr.outputs.has_pr }}
-            DOCS_PATH: ${{ env.DOCS_PATH }}
-            DIFF_LINES: ${{ env.diff_lines }}
-            COMMIT_SHA: ${{ env.AFTER_SHA }}
-
-            本分支为 feature 开发分支。本次 push 更新了 `${{ env.DOCS_PATH }}`（含需求 PRD 与技术设计）。
-            请**自动审核需求文档与技术方案**，**少轮次完成**。
-
-            必读一次：
-            1. `.github/claude-doc-meta.txt`（变更文件清单）
-            2. `.github/claude-doc-diff.patch`（本次文档 diff）
-            3. 根目录 `DOC_REVIEW.md`（若有）
-            4. 变更涉及的完整文档正文（按 meta 中路径 Read，不要扫全库）
-
-            禁止：全库扫描、重复 gh 命令、写任何结果 JSON 文件。
-
-            ## 审查重点
-            - **需求（PRD）**：目标/范围/非目标、角色与流程、规则与约束、验收口径是否清晰完备
-            - **技术方案**：与需求是否对齐、模块边界、数据模型、接口/状态机、异常与补偿、安全与审计是否到位
-            - **交叉一致性**：需求与设计是否矛盾或遗漏；金融场景优先关注资金安全、幂等、权限、可追溯
-
-            ## 输出
-            1. 若 HAS_PR 为 true：用一条 `gh pr comment ${{ steps.pr.outputs.pr_number }}` 发表审查总结
-            2. 若 HAS_PR 为 false：用 `gh api` 往当前 commit 发一条 commit comment（repos/${{ github.repository }}/commits/${{ env.AFTER_SHA }}/comments），body 为审查总结
-            3. 总结首行格式：`Important: N，Nit: M`（无 Important 时写「无阻塞项」）
-            4. 按 DOC_REVIEW.md 区分 Important / Nit；Nit 最多 5 条；Important 尽量带 `路径` 或章节定位
-
-            ${{ inputs.extra_review_instructions }}
-          claude_args: |
-            --model ${{ env.CLAUDE_MODEL }}
-            --max-turns ${{ inputs.max_turns }}
-            --allowedTools "Bash(gh pr comment:*),Bash(gh api:*),Read"
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          claude -p "$(cat .github/claude-doc-review-prompt.md)" \
+            --model "${CLAUDE_MODEL}" \
+            --max-turns "${{ inputs.max_turns }}" \
+            --allowedTools "Bash(gh pr comment:*),Bash(gh api:*),Read" \
+            --permission-mode bypassPermissions
 
       - name: Summary
         if: always()
