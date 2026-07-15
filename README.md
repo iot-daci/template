@@ -153,7 +153,8 @@ jobs:
 | `docs_path` | `dev-doc/docs` | 设计文档目录 |
 | `base_branch` | `main` | 新建分支时对比基线 |
 | `model` | `claude-sonnet-4-6` | 与 API/代理可用模型一致 |
-| `max_turns` | `40` | 对话轮数上限 |
+| `max_turns` | `50` | 对话轮数上限（开 inline 建议 ≥50） |
+| `post_inline_comments` | `true` | 有关联 PR 时在文档行上发 Files 行评（最多 8 条 Important） |
 | `require_doc_review_md` | `true` | 是否必须有 `DOC_REVIEW.md` |
 | `extra_review_instructions` | 空 | 追加审查说明 |
 
