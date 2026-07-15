@@ -9,8 +9,8 @@
 
 1. 读 `DOC_REVIEW.md` 一次，按下方 Important 清单对照文档  
 2. 发 **一条** 总结（有 PR 则 `gh pr comment`，否则 commit comment），首行 `Important: N，Nit: M`  
-3. 若开启 inline（`post_inline_comments=true` 且有关联 PR）：对最多 **8** 条 Important 在文档对应行发 PR review comment（Files 视图可见）  
-4. Nit ≤ 5 条；无 inline 时 Important 尽量在总结中带文档路径与章节/行号  
+3. **每一条** Important / Nit 末尾附可点击定位：`[path:line](https://github.com/<repo>/blob/<sha>/<urlencoded-path>#L<line>)`  
+4. Nit ≤ 5 条；不要发 PR Files 行内 review comment  
 
 ## Important（必须修复）
 

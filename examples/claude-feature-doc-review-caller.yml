@@ -29,6 +29,5 @@ jobs:
       docs_path: dev-doc/docs
       base_branch: main
       model: claude-sonnet-4-6
-      max_turns: 50
-      post_inline_comments: true
+      max_turns: 40
       require_doc_review_md: true

@@ -104,7 +104,7 @@ jobs:
 
 ## Claude Feature Doc Review
 
-当往 **`feature-*`** 分支 push，且 **`dev-doc/docs`**（需求 PRD + 技术设计）有变更时，自动触发 Claude 审核。有关联 PR 时结论发到 PR 评论；否则发到对应 commit comment。
+当往 **`feature-*`** 分支 push，且 **`dev-doc/docs`**（需求 PRD + 技术设计）有变更时，自动触发 Claude 审核。有关联 PR 时结论发到 **一条 PR 评论**（每条问题附可点击的 `path:line` 文档链接）；否则发到对应 commit comment。
 
 > 说明：`anthropics/claude-code-action@v1` 不支持 `push` 事件，本模板改为直接调用 Claude Code CLI（headless）。
 
@@ -153,8 +153,7 @@ jobs:
 | `docs_path` | `dev-doc/docs` | 设计文档目录 |
 | `base_branch` | `main` | 新建分支时对比基线 |
 | `model` | `claude-sonnet-4-6` | 与 API/代理可用模型一致 |
-| `max_turns` | `50` | 对话轮数上限（开 inline 建议 ≥50） |
-| `post_inline_comments` | `true` | 有关联 PR 时在文档行上发 Files 行评（最多 8 条 Important） |
+| `max_turns` | `40` | 对话轮数上限 |
 | `require_doc_review_md` | `true` | 是否必须有 `DOC_REVIEW.md` |
 | `extra_review_instructions` | 空 | 追加审查说明 |
 

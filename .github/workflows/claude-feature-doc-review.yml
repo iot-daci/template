@@ -3,7 +3,7 @@
 # （contents:write 用于无 PR 时发表 commit comment）
 #
 # 说明：claude-code-action@v1 不支持 push，因此使用 Claude Code CLI（headless）。
-# post_inline_comments=true 且存在关联 PR 时，通过 GitHub PR review comment 在文档行上点评。
+# 审查结论发到 PR 评论（无 PR 则 commit comment）；每条问题附可点击的文档路径+行号链接。
 name: Claude Feature Doc Review
 
 on:
@@ -40,12 +40,7 @@ on:
         description: "最大对话轮数"
         type: number
         required: false
-        default: 50
-      post_inline_comments:
-        description: "有关联 PR 时，是否在文档对应行发 inline review comment"
-        type: boolean
-        required: false
-        default: true
+        default: 40
       require_doc_review_md:
         description: "是否要求仓库根目录存在 DOC_REVIEW.md"
         type: boolean
@@ -174,73 +169,11 @@ jobs:
           else
             echo "has_pr=false" >> "$GITHUB_OUTPUT"
             echo "pr_number=" >> "$GITHUB_OUTPUT"
-            echo "head_sha=" >> "$GITHUB_OUTPUT"
-            echo "未找到关联 PR；无法发 inline 行评，结论改走 commit comment"
+            echo "head_sha=$AFTER_SHA" >> "$GITHUB_OUTPUT"
+            echo "未找到关联 PR，审查结论改走 commit comment"
           fi
         env:
           GH_TOKEN: ${{ github.token }}
-
-      - name: Resolve inline comments
-        if: steps.docs.outputs.has_changes == 'true'
-        id: inline
-        run: |
-          if [ "${{ inputs.post_inline_comments }}" = "true" ] && [ "${{ steps.pr.outputs.has_pr }}" = "true" ]; then
-            echo "enabled=true" >> "$GITHUB_OUTPUT"
-            echo "将在 PR 文档行上发表 inline comment"
-          else
-            echo "enabled=false" >> "$GITHUB_OUTPUT"
-            if [ "${{ inputs.post_inline_comments }}" = "true" ]; then
-              echo "::warning::post_inline_comments=true 但无关联 PR，已跳过行评"
-            fi
-          fi
-
-      - name: Install inline comment helper
-        if: steps.docs.outputs.has_changes == 'true' && steps.inline.outputs.enabled == 'true'
-        env:
-          PR_NUMBER: ${{ steps.pr.outputs.pr_number }}
-          HEAD_SHA: ${{ steps.pr.outputs.head_sha }}
-          REPO: ${{ github.repository }}
-        run: |
-          set -euo pipefail
-          python3 <<'PY'
-          import os
-          repo = os.environ["REPO"]
-          pr = os.environ["PR_NUMBER"]
-          sha = os.environ["HEAD_SHA"]
-          # Avoid "${{" in workflow YAML (GHA expression syntax).
-          d = chr(36)
-          script = "\n".join([
-              "#!/usr/bin/env bash",
-              "set -euo pipefail",
-              f'PATH_ARG="{d}{{1:?path required}}"',
-              f'LINE_ARG="{d}{{2:?line required}}"',
-              f'BODY_ARG="{d}{{3:--}}"',
-              f'if [ "{d}BODY_ARG" = "-" ]; then',
-              '  BODY="$(cat)"',
-              "else",
-              f'  BODY="{d}BODY_ARG"',
-              "fi",
-              f'if ! [[ "{d}LINE_ARG" =~ ^[0-9]+$ ]]; then',
-              f'  echo "line must be a positive integer, got: {d}LINE_ARG" >&2',
-              "  exit 1",
-              "fi",
-              f'gh api "repos/{repo}/pulls/{pr}/comments" \\',
-              f'  -f body="{d}BODY" \\',
-              f'  -f commit_id="{sha}" \\',
-              f'  -f path="{d}PATH_ARG" \\',
-              f'  -F line="{d}LINE_ARG" \\',
-              '  -f side=RIGHT \\',
-              "  >/dev/null",
-              f'echo "posted inline: {d}PATH_ARG:{d}LINE_ARG"',
-              "",
-          ])
-          path = ".github/claude-post-doc-inline.sh"
-          with open(path, "w", encoding="utf-8") as f:
-              f.write(script)
-          os.chmod(path, 0o755)
-          print(f"inline helper ready for PR #{pr}")
-          PY
-          bash -n .github/claude-post-doc-inline.sh
 
       - name: Configure Anthropic endpoint
         if: steps.docs.outputs.has_changes == 'true'
@@ -283,77 +216,75 @@ jobs:
         env:
           PR_NUMBER: ${{ steps.pr.outputs.pr_number }}
           HAS_PR: ${{ steps.pr.outputs.has_pr }}
-          POST_INLINE: ${{ steps.inline.outputs.enabled }}
+          HEAD_SHA: ${{ steps.pr.outputs.head_sha }}
           EXTRA_INSTRUCTIONS: ${{ inputs.extra_review_instructions }}
           REPO: ${{ github.repository }}
+          SERVER_URL: ${{ github.server_url }}
         run: |
           set -euo pipefail
           python3 <<'PY'
           import os
+
           repo = os.environ["REPO"]
           branch = os.environ["BRANCH"]
           pr = os.environ.get("PR_NUMBER", "")
           has_pr = os.environ.get("HAS_PR", "")
-          post_inline = os.environ.get("POST_INLINE", "")
           docs = os.environ["DOCS_PATH"]
           diff_lines = os.environ.get("diff_lines", "")
           after = os.environ["AFTER_SHA"]
+          head = os.environ.get("HEAD_SHA") or after
           extra = os.environ.get("EXTRA_INSTRUCTIONS", "")
-          prompt = f"""REPO: {repo}
-          BRANCH: {branch}
-          PR_NUMBER: {pr}
-          HAS_PR: {has_pr}
-          POST_INLINE_COMMENTS: {post_inline}
-          DOCS_PATH: {docs}
-          DIFF_LINES: {diff_lines}
-          COMMIT_SHA: {after}
+          server = os.environ.get("SERVER_URL", "https://github.com").rstrip("/")
+          # Example blob base for permalinks (path segments must be URL-encoded).
+          blob_base = "%s/%s/blob/%s/" % (server, repo, head)
 
-          本分支为 feature 开发分支。本次 push 更新了 `{docs}`（含需求 PRD 与技术设计）。
-          请**自动审核需求文档与技术方案**，**少轮次完成**。
+          lines = [
+              "REPO: %s" % repo,
+              "BRANCH: %s" % branch,
+              "PR_NUMBER: %s" % pr,
+              "HAS_PR: %s" % has_pr,
+              "DOCS_PATH: %s" % docs,
+              "DIFF_LINES: %s" % diff_lines,
+              "COMMIT_SHA: %s" % after,
+              "BLOB_BASE: %s" % blob_base,
+              "",
+              "本分支为 feature 开发分支。本次 push 更新了 `%s`（含需求 PRD 与技术设计）。" % docs,
+              "请**自动审核需求文档与技术方案**，**少轮次完成**。",
+              "",
+              "必读一次：",
+              "1. `.github/claude-doc-meta.txt`（变更文件清单）",
+              "2. `.github/claude-doc-diff.patch`（本次文档 diff）",
+              "3. 根目录 `DOC_REVIEW.md`（若有）",
+              "4. 变更涉及的完整文档正文（按 meta 中路径 Read，不要扫全库）",
+              "",
+              "禁止：全库扫描、重复无效 gh 命令、写任何结果 JSON 文件、发 PR review inline comment。",
+              "",
+              "## 审查重点",
+              "- **需求（PRD）**：目标/范围/非目标、角色与流程、规则与约束、验收口径是否清晰完备",
+              "- **技术方案**：与需求是否对齐、模块边界、数据模型、接口/状态机、异常与补偿、安全与审计是否到位",
+              "- **交叉一致性**：需求与设计是否矛盾或遗漏；金融场景优先关注资金安全、幂等、权限、可追溯",
+              "",
+              "## 输出（只发一条总结评论）",
+              "1. 若 HAS_PR 为 true：用一条 `gh pr comment %s --body-file ...` 发表审查总结" % (pr or "<n>"),
+              "2. 若 HAS_PR 为 false：用 `gh api` 往当前 commit 发一条 commit comment（repos/%s/commits/%s/comments）" % (repo, after),
+              "3. 总结首行格式：`Important: N，Nit: M`（无 Important 时写「无阻塞项」）",
+              "4. 按 DOC_REVIEW.md 区分 Important / Nit；Nit 最多 5 条",
+              "5. **每一条** Important / Nit 末尾必须附可点击定位链接，格式：",
+              "   `[path:line](BLOB_BASE + urlencode(path) + #Lline)`",
+              "   示例：`[dev-doc/docs/foo/bar.md:42](%sdev-doc/docs/foo/bar.md#L42)`" % blob_base,
+              "   - path 为仓库相对路径；line 为正文绝对行号（从 1 起）",
+              "   - 中文/空格等非 ASCII 路径：按路径分段 URL encode（保留 `/`）后再拼进链接",
+              "   - 链接对应 COMMIT/HEAD：%s" % head,
+              "",
+          ]
+          if extra.strip():
+              lines.append(extra.strip())
+              lines.append("")
 
-          必读一次：
-          1. `.github/claude-doc-meta.txt`（变更文件清单）
-          2. `.github/claude-doc-diff.patch`（本次文档 diff）
-          3. 根目录 `DOC_REVIEW.md`（若有）
-          4. 变更涉及的完整文档正文（按 meta 中路径 Read，不要扫全库）
-
-          禁止：全库扫描、重复无效 gh 命令、写任何结果 JSON 文件。
-
-          ## 审查重点
-          - **需求（PRD）**：目标/范围/非目标、角色与流程、规则与约束、验收口径是否清晰完备
-          - **技术方案**：与需求是否对齐、模块边界、数据模型、接口/状态机、异常与补偿、安全与审计是否到位
-          - **交叉一致性**：需求与设计是否矛盾或遗漏；金融场景优先关注资金安全、幂等、权限、可追溯
-
-          ## 输出
-          1. 若 HAS_PR 为 true：用一条 `gh pr comment {pr}` 发表审查总结
-          2. 若 HAS_PR 为 false：用 `gh api` 往当前 commit 发一条 commit comment（repos/{repo}/commits/{after}/comments）
-          3. 总结首行格式：`Important: N，Nit: M`（无 Important 时写「无阻塞项」）
-          4. 按 DOC_REVIEW.md 区分 Important / Nit；Nit 最多 5 条
-
-          ## Inline 行评（仅当 POST_INLINE_COMMENTS 为 true）
-          - 对需要调整的文档段落，在对应**文件行号**发 PR review comment（出现在 Files 视图该行旁）
-          - 只评 Important；最多 8 条
-          - 行号必须是文档当前正文的绝对行号（从 1 起，对应 Read 看到的行）
-          - 每条正文以 `【Important】` 开头，说明问题与建议改法
-          - 调用方式（优先）：
-            `.github/claude-post-doc-inline.sh "<path>" <line> - <<'EOF'
-            【Important】...
-            EOF`
-          - 若脚本失败，可退回：
-            `gh api repos/{repo}/pulls/{pr}/comments -f body='...' -f commit_id='<PR head sha>' -f path='...' -F line=<n> -f side=RIGHT`
-
-          {extra}
-          """
-          # Strip common leading indent from f-string lines (2 spaces per content line).
-          cleaned = []
-          for line in prompt.splitlines():
-              if line.startswith("  "):
-                  cleaned.append(line[2:])
-              else:
-                  cleaned.append(line)
           with open(".github/claude-doc-review-prompt.md", "w", encoding="utf-8") as f:
-              f.write("\n".join(cleaned) + "\n")
+              f.write("\n".join(lines))
           print("prompt prepared")
+          print("blob_base=", blob_base)
           PY
 
       - name: Claude feature doc review
@@ -361,17 +292,12 @@ jobs:
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           GH_TOKEN: ${{ github.token }}
-          POST_INLINE: ${{ steps.inline.outputs.enabled }}
         run: |
           set -euo pipefail
-          TOOLS='Bash(gh pr comment:*),Bash(gh api:*),Read'
-          if [ "${POST_INLINE}" = "true" ]; then
-            TOOLS="Bash(.github/claude-post-doc-inline.sh:*),${TOOLS}"
-          fi
           claude -p "$(cat .github/claude-doc-review-prompt.md)" \
             --model "${CLAUDE_MODEL}" \
             --max-turns "${{ inputs.max_turns }}" \
-            --allowedTools "${TOOLS}" \
+            --allowedTools "Bash(gh pr comment:*),Bash(gh api:*),Read" \
             --permission-mode bypassPermissions
 
       - name: Summary
@@ -386,9 +312,8 @@ jobs:
               echo "- 结果: 无文档变更，已跳过"
             else
               echo "- 变更文件数: ${{ steps.docs.outputs.file_count }}"
-              echo "- Inline 行评: ${{ steps.inline.outputs.enabled }}"
               if [ "${{ steps.pr.outputs.has_pr }}" = "true" ]; then
-                echo "- 审查结论: 见 PR [#${{ steps.pr.outputs.pr_number }}](${{ steps.pr.outputs.pr_url }}) 评论 / Files 行评"
+                echo "- 审查结论: 见 PR [#${{ steps.pr.outputs.pr_number }}](${{ steps.pr.outputs.pr_url }}) 评论"
               else
                 echo "- 审查结论: 见本 commit 的 Commit Comment / 上方 Claude 输出"
               fi
