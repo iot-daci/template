@@ -50,8 +50,76 @@ jobs:
       - name: Init builder env
         run: init_env.sh
 
-      - name: Run unit tests
-        run: cd ${{ inputs.workdir }} && mvn -B test ${{ inputs.modules }}
+      - name: Run unit tests with JaCoCo
+        run: cd ${{ inputs.workdir }} && mvn -B clean test jacoco:report ${{ inputs.modules }}
+
+      - name: Upload JaCoCo reports
+        if: always() && !cancelled()
+        uses: actions/upload-artifact@v4
+        with:
+          name: jacoco-coverage-${{ github.run_id }}
+          path: ${{ inputs.workdir }}/**/target/site/jacoco/**
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Coverage summary
+        if: always() && !cancelled()
+        run: |
+          set -euo pipefail
+          cd ${{ inputs.workdir }}
+          {
+            echo "## JaCoCo Coverage"
+            echo ""
+            echo "HTML/XML 报告见 Artifact \`jacoco-coverage-${{ github.run_id }}\`（各模块 \`target/site/jacoco/\`）。"
+            echo ""
+          } >> "$GITHUB_STEP_SUMMARY"
+          if ! ls **/target/site/jacoco/jacoco.csv >/dev/null 2>&1; then
+            echo "_未找到 jacoco.csv（可能无测试模块或插件未生效）_" >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          python3 <<'PY' >> "$GITHUB_STEP_SUMMARY"
+          import csv
+          from pathlib import Path
+
+          print("| Module | Instruction | Branch | Line |")
+          print("| --- | ---: | ---: | ---: |")
+          rows = []
+          total = [0, 0, 0, 0, 0, 0]
+          for csv_path in sorted(Path(".").glob("**/target/site/jacoco/jacoco.csv")):
+              parts = csv_path.parts
+              try:
+                  idx = parts.index("target")
+                  module = parts[idx - 1] if idx > 0 else csv_path.parent.parent.parent.name
+              except ValueError:
+                  module = str(csv_path)
+              i_m = i_c = b_m = b_c = l_m = l_c = 0
+              with csv_path.open(newline="", encoding="utf-8") as f:
+                  reader = csv.DictReader(f)
+                  for row in reader:
+                      i_m += int(row.get("INSTRUCTION_MISSED") or 0)
+                      i_c += int(row.get("INSTRUCTION_COVERED") or 0)
+                      b_m += int(row.get("BRANCH_MISSED") or 0)
+                      b_c += int(row.get("BRANCH_COVERED") or 0)
+                      l_m += int(row.get("LINE_MISSED") or 0)
+                      l_c += int(row.get("LINE_COVERED") or 0)
+
+              def pct(covered, missed):
+                  denom = covered + missed
+                  return "n/a" if denom == 0 else f"{100.0 * covered / denom:.1f}%"
+
+              rows.append((module, pct(i_c, i_m), pct(b_c, b_m), pct(l_c, l_m)))
+              total[0] += i_m; total[1] += i_c
+              total[2] += b_m; total[3] += b_c
+              total[4] += l_m; total[5] += l_c
+          for r in rows:
+              print(f"| `{r[0]}` | {r[1]} | {r[2]} | {r[3]} |")
+
+          def pct(covered, missed):
+              denom = covered + missed
+              return "n/a" if denom == 0 else f"{100.0 * covered / denom:.1f}%"
+
+          print(f"| **TOTAL** | **{pct(total[1], total[0])}** | **{pct(total[3], total[2])}** | **{pct(total[5], total[4])}** |")
+          PY
 
   build:
     name: Build & deploy
