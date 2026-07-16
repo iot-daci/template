@@ -45,8 +45,18 @@ jobs:
       - name: Init builder env
         run: init_env.sh
 
-      - name: Run unit tests, JaCoCo and SpotBugs
-        run: cd ${{ inputs.workdir }} && mvn -B clean verify -DskipITs ${{ inputs.modules }}
+      - name: Run unit tests with JaCoCo
+        run: cd ${{ inputs.workdir }} && mvn -B clean test ${{ inputs.modules }}
+
+      # 与 test 拆开：即使单测失败也会扫描；用完全限定坐标避免 BOM 等无父模块解析 prefix 失败
+      - name: Run SpotBugs
+        if: always() && !cancelled()
+        run: |
+          cd ${{ inputs.workdir }}
+          mvn -B -DskipTests compile \
+            com.github.spotbugs:spotbugs-maven-plugin:4.8.6.6:spotbugs \
+            com.github.spotbugs:spotbugs-maven-plugin:4.8.6.6:check \
+            ${{ inputs.modules }}
 
       - name: Upload JaCoCo reports
         if: always() && !cancelled()
@@ -67,6 +77,7 @@ jobs:
           name: spotbugs-${{ github.run_id }}
           path: |
             ${{ inputs.workdir }}/**/target/spotbugsXml.xml
+            ${{ inputs.workdir }}/**/target/spotbugs.xml
             ${{ inputs.workdir }}/**/target/site/spotbugs.html
           if-no-files-found: warn
           retention-days: 7
@@ -153,21 +164,35 @@ jobs:
               "详情见 Artifact `spotbugs-%s`（`spotbugsXml.xml` / `spotbugs.html`）。" % run_id,
               "",
           ]
-          xml_files = sorted(Path(".").glob("**/target/spotbugsXml.xml"))
+          xml_files = sorted({
+              *Path(".").glob("**/target/spotbugsXml.xml"),
+              *Path(".").glob("**/target/spotbugs.xml"),
+          })
           if not xml_files:
-              lines.append("_未找到 spotbugsXml.xml（可能未配置插件或分析被跳过）_")
+              lines.append(
+                  "_未找到 SpotBugs 报告。常见原因：业务仓 POM 未配置 spotbugs-maven-plugin；"
+                  "或 Run SpotBugs 步骤未执行/失败且未产出 XML。_"
+              )
           else:
               lines.extend(["| Module | Bugs (reported) |", "| --- | ---: |"])
               total_bugs = 0
+              seen = set()
               for xml_path in xml_files:
+                  # 同一模块优先用 spotbugsXml.xml
                   parts = xml_path.parts
                   try:
                       idx = parts.index("target")
                       module = parts[idx - 1] if idx > 0 else str(xml_path)
                   except ValueError:
                       module = str(xml_path)
+                  key = str(xml_path.parent)
+                  if key in seen:
+                      continue
+                  preferred = xml_path.parent / "spotbugsXml.xml"
+                  use = preferred if preferred.exists() else xml_path
+                  seen.add(key)
                   try:
-                      root = ET.parse(xml_path).getroot()
+                      root = ET.parse(use).getroot()
                       n = len(root.findall("BugInstance"))
                   except Exception:
                       n = 0
