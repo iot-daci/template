@@ -48,16 +48,6 @@ jobs:
       - name: Run unit tests with JaCoCo
         run: cd ${{ inputs.workdir }} && mvn -B clean test ${{ inputs.modules }}
 
-      # 与 test 拆开：即使单测失败也会扫描；用完全限定坐标避免 BOM 等无父模块解析 prefix 失败
-      - name: Run SpotBugs
-        if: always() && !cancelled()
-        run: |
-          cd ${{ inputs.workdir }}
-          mvn -B -DskipTests compile \
-            com.github.spotbugs:spotbugs-maven-plugin:4.8.6.6:spotbugs \
-            com.github.spotbugs:spotbugs-maven-plugin:4.8.6.6:check \
-            ${{ inputs.modules }}
-
       - name: Upload JaCoCo reports
         if: always() && !cancelled()
         uses: actions/upload-artifact@v4
@@ -70,15 +60,14 @@ jobs:
           if-no-files-found: warn
           retention-days: 7
 
-      - name: Upload SpotBugs reports
+      - name: Upload PMD (P3C) reports
         if: always() && !cancelled()
         uses: actions/upload-artifact@v4
         with:
-          name: spotbugs-${{ github.run_id }}
+          name: pmd-p3c-${{ github.run_id }}
           path: |
-            ${{ inputs.workdir }}/**/target/spotbugsXml.xml
-            ${{ inputs.workdir }}/**/target/spotbugs.xml
-            ${{ inputs.workdir }}/**/target/site/spotbugs.html
+            ${{ inputs.workdir }}/**/target/pmd.xml
+            ${{ inputs.workdir }}/**/target/site/pmd.html
           if-no-files-found: warn
           retention-days: 7
 
@@ -146,59 +135,77 @@ jobs:
               out.write(nl.join(lines) + nl)
           PY
 
-      - name: SpotBugs summary
+      - name: PMD (P3C) summary
         if: always() && !cancelled()
         working-directory: ${{ inputs.workdir }}
         run: |
           python3 <<'PY'
           import os
           import xml.etree.ElementTree as ET
+          from collections import Counter
           from pathlib import Path
 
           nl = chr(10)
           summary = Path(os.environ["GITHUB_STEP_SUMMARY"])
           run_id = os.environ.get("GITHUB_RUN_ID", "")
           lines = [
-              "## SpotBugs",
+              "## PMD (Alibaba P3C)",
               "",
-              "详情见 Artifact `spotbugs-%s`（`spotbugsXml.xml` / `spotbugs.html`）。" % run_id,
+              "详情见 Artifact `pmd-p3c-%s`（各模块 `pmd.xml`）。" % run_id,
               "",
           ]
-          xml_files = sorted({
-              *Path(".").glob("**/target/spotbugsXml.xml"),
-              *Path(".").glob("**/target/spotbugs.xml"),
-          })
+
+          def local(tag):
+              return tag.rsplit("}", 1)[-1]
+
+          def module_name(xml_path):
+              parts = xml_path.parts
+              try:
+                  idx = parts.index("target")
+                  return parts[idx - 1] if idx > 0 else str(xml_path)
+              except ValueError:
+                  return str(xml_path)
+
+          xml_files = sorted(Path(".").glob("**/target/pmd.xml"))
           if not xml_files:
-              lines.append(
-                  "_未找到 SpotBugs 报告。常见原因：业务仓 POM 未配置 spotbugs-maven-plugin；"
-                  "或 Run SpotBugs 步骤未执行/失败且未产出 XML。_"
-              )
+              lines.append("_未找到 pmd.xml（可能未配置 maven-pmd-plugin / P3C，或 validate 未产出报告）_")
           else:
-              lines.extend(["| Module | Bugs (reported) |", "| --- | ---: |"])
-              total_bugs = 0
-              seen = set()
+              lines.extend([
+                  "| Module | Violations | P1 | P2 | P3+ |",
+                  "| --- | ---: | ---: | ---: | ---: |",
+              ])
+              total_v, total_p, rule_total = Counter(), Counter(), Counter()
               for xml_path in xml_files:
-                  # 同一模块优先用 spotbugsXml.xml
-                  parts = xml_path.parts
                   try:
-                      idx = parts.index("target")
-                      module = parts[idx - 1] if idx > 0 else str(xml_path)
-                  except ValueError:
-                      module = str(xml_path)
-                  key = str(xml_path.parent)
-                  if key in seen:
-                      continue
-                  preferred = xml_path.parent / "spotbugsXml.xml"
-                  use = preferred if preferred.exists() else xml_path
-                  seen.add(key)
-                  try:
-                      root = ET.parse(use).getroot()
-                      n = len(root.findall("BugInstance"))
+                      root = ET.parse(xml_path).getroot()
                   except Exception:
-                      n = 0
-                  total_bugs += n
-                  lines.append("| `%s` | %d |" % (module, n))
-              lines.append("| **TOTAL** | **%d** |" % total_bugs)
+                      continue
+                  prio = Counter()
+                  n = 0
+                  for el in root.iter():
+                      if local(el.tag) != "violation":
+                          continue
+                      n += 1
+                      p = int(el.get("priority") or 5)
+                      bucket = "1" if p <= 1 else ("2" if p == 2 else "3+")
+                      prio[bucket] += 1
+                      rule_total[el.get("rule") or "unknown"] += 1
+                  lines.append(
+                      "| `%s` | %d | %d | %d | %d |"
+                      % (module_name(xml_path), n, prio["1"], prio["2"], prio["3+"])
+                  )
+                  total_v["n"] += n
+                  total_p["1"] += prio["1"]
+                  total_p["2"] += prio["2"]
+                  total_p["3+"] += prio["3+"]
+              lines.append(
+                  "| **TOTAL** | **%d** | **%d** | **%d** | **%d** |"
+                  % (total_v["n"], total_p["1"], total_p["2"], total_p["3+"])
+              )
+              if rule_total:
+                  lines.extend(["", "### Top rules", "", "| Rule | Count |", "| --- | ---: |"])
+                  for rule, c in rule_total.most_common(15):
+                      lines.append("| `%s` | %d |" % (rule, c))
           with summary.open("a", encoding="utf-8") as out:
               out.write(nl.join(lines) + nl)
           PY

@@ -54,8 +54,8 @@ jobs:
       - name: Init builder env
         run: init_env.sh
 
-      - name: Run unit tests, JaCoCo and SpotBugs
-        run: cd ${{ inputs.workdir }} && mvn -B clean verify -DskipITs
+      - name: Run unit tests with JaCoCo
+        run: cd ${{ inputs.workdir }} && mvn -B clean test
 
       - name: Upload JaCoCo reports
         if: always() && !cancelled()
@@ -70,14 +70,14 @@ jobs:
           if-no-files-found: warn
           retention-days: 7
 
-      - name: Upload SpotBugs reports
+      - name: Upload PMD (P3C) reports
         if: always() && !cancelled()
         uses: actions/upload-artifact@v4
         with:
-          name: spotbugs-${{ github.run_id }}
+          name: pmd-p3c-${{ github.run_id }}
           path: |
-            ${{ inputs.workdir }}/**/target/spotbugsXml.xml
-            ${{ inputs.workdir }}/**/target/site/spotbugs.html
+            ${{ inputs.workdir }}/**/target/pmd.xml
+            ${{ inputs.workdir }}/**/target/site/pmd.html
           if-no-files-found: warn
           retention-days: 7
 
@@ -143,6 +143,81 @@ jobs:
               "| **TOTAL** | **%s** | **%s** | **%s** |"
               % (pct(total[1], total[0]), pct(total[3], total[2]), pct(total[5], total[4]))
           )
+          with summary.open("a", encoding="utf-8") as out:
+              out.write(nl.join(lines) + nl)
+          PY
+
+      - name: PMD (P3C) summary
+        if: always() && !cancelled()
+        working-directory: ${{ inputs.workdir }}
+        run: |
+          python3 <<'PY'
+          import os
+          import xml.etree.ElementTree as ET
+          from collections import Counter
+          from pathlib import Path
+
+          nl = chr(10)
+          summary = Path(os.environ["GITHUB_STEP_SUMMARY"])
+          run_id = os.environ.get("GITHUB_RUN_ID", "")
+          lines = [
+              "## PMD (Alibaba P3C)",
+              "",
+              "详情见 Artifact `pmd-p3c-%s`（各模块 `pmd.xml`）。" % run_id,
+              "",
+          ]
+
+          def local(tag):
+              return tag.rsplit("}", 1)[-1]
+
+          def module_name(xml_path):
+              parts = xml_path.parts
+              try:
+                  idx = parts.index("target")
+                  return parts[idx - 1] if idx > 0 else str(xml_path)
+              except ValueError:
+                  return str(xml_path)
+
+          xml_files = sorted(Path(".").glob("**/target/pmd.xml"))
+          if not xml_files:
+              lines.append("_未找到 pmd.xml（可能未配置 maven-pmd-plugin / P3C，或 validate 未产出报告）_")
+          else:
+              lines.extend([
+                  "| Module | Violations | P1 | P2 | P3+ |",
+                  "| --- | ---: | ---: | ---: | ---: |",
+              ])
+              total_v, total_p, rule_total = Counter(), Counter(), Counter()
+              for xml_path in xml_files:
+                  try:
+                      root = ET.parse(xml_path).getroot()
+                  except Exception:
+                      continue
+                  prio = Counter()
+                  n = 0
+                  for el in root.iter():
+                      if local(el.tag) != "violation":
+                          continue
+                      n += 1
+                      p = int(el.get("priority") or 5)
+                      bucket = "1" if p <= 1 else ("2" if p == 2 else "3+")
+                      prio[bucket] += 1
+                      rule_total[el.get("rule") or "unknown"] += 1
+                  lines.append(
+                      "| `%s` | %d | %d | %d | %d |"
+                      % (module_name(xml_path), n, prio["1"], prio["2"], prio["3+"])
+                  )
+                  total_v["n"] += n
+                  total_p["1"] += prio["1"]
+                  total_p["2"] += prio["2"]
+                  total_p["3+"] += prio["3+"]
+              lines.append(
+                  "| **TOTAL** | **%d** | **%d** | **%d** | **%d** |"
+                  % (total_v["n"], total_p["1"], total_p["2"], total_p["3+"])
+              )
+              if rule_total:
+                  lines.extend(["", "### Top rules", "", "| Rule | Count |", "| --- | ---: |"])
+                  for rule, c in rule_total.most_common(15):
+                      lines.append("| `%s` | %d |" % (rule, c))
           with summary.open("a", encoding="utf-8") as out:
               out.write(nl.join(lines) + nl)
           PY

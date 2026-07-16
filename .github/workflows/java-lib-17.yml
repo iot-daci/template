@@ -50,8 +50,8 @@ jobs:
       - name: Init builder env
         run: init_env.sh
 
-      - name: Run unit tests, JaCoCo and SpotBugs
-        run: cd ${{ inputs.workdir }} && mvn -B clean verify -DskipITs ${{ inputs.modules }}
+      - name: Run unit tests with JaCoCo
+        run: cd ${{ inputs.workdir }} && mvn -B clean test ${{ inputs.modules }}
 
       - name: Upload JaCoCo reports
         if: always() && !cancelled()
