@@ -45,8 +45,8 @@ jobs:
       - name: Init builder env
         run: init_env.sh
 
-      - name: Run unit tests with JaCoCo
-        run: cd ${{ inputs.workdir }} && mvn -B clean test ${{ inputs.modules }}
+      - name: Run unit tests, JaCoCo and SpotBugs
+        run: cd ${{ inputs.workdir }} && mvn -B clean verify -DskipITs ${{ inputs.modules }}
 
       - name: Upload JaCoCo reports
         if: always() && !cancelled()
@@ -60,7 +60,18 @@ jobs:
           if-no-files-found: warn
           retention-days: 7
 
-      - name: Coverage summary
+      - name: Upload SpotBugs reports
+        if: always() && !cancelled()
+        uses: actions/upload-artifact@v4
+        with:
+          name: spotbugs-${{ github.run_id }}
+          path: |
+            ${{ inputs.workdir }}/**/target/spotbugsXml.xml
+            ${{ inputs.workdir }}/**/target/site/spotbugs.html
+          if-no-files-found: warn
+          retention-days: 7
+
+      - name: JaCoCo coverage summary
         if: always() && !cancelled()
         working-directory: ${{ inputs.workdir }}
         run: |
@@ -81,47 +92,88 @@ jobs:
           csv_files = sorted(Path(".").glob("**/target/site/jacoco/jacoco.csv"))
           if not csv_files:
               lines.append("_未找到 jacoco.csv（可能无测试模块或插件未生效）_")
-              summary.write_text(nl.join(lines) + nl, encoding="utf-8")
-              raise SystemExit(0)
+          else:
+              lines.extend([
+                  "| Module | Instruction | Branch | Line |",
+                  "| --- | ---: | ---: | ---: |",
+              ])
+              total = [0, 0, 0, 0, 0, 0]
 
-          lines.extend([
-              "| Module | Instruction | Branch | Line |",
-              "| --- | ---: | ---: | ---: |",
-          ])
-          total = [0, 0, 0, 0, 0, 0]
+              def pct(covered, missed):
+                  denom = covered + missed
+                  return "n/a" if denom == 0 else ("%.1f%%" % (100.0 * covered / denom))
 
-          def pct(covered, missed):
-              denom = covered + missed
-              return "n/a" if denom == 0 else ("%.1f%%" % (100.0 * covered / denom))
+              for csv_path in csv_files:
+                  parts = csv_path.parts
+                  try:
+                      idx = parts.index("target")
+                      module = parts[idx - 1] if idx > 0 else csv_path.parent.parent.parent.name
+                  except ValueError:
+                      module = str(csv_path)
+                  i_m = i_c = b_m = b_c = l_m = l_c = 0
+                  with csv_path.open(newline="", encoding="utf-8") as fh:
+                      for row in csv.DictReader(fh):
+                          i_m += int(row.get("INSTRUCTION_MISSED") or 0)
+                          i_c += int(row.get("INSTRUCTION_COVERED") or 0)
+                          b_m += int(row.get("BRANCH_MISSED") or 0)
+                          b_c += int(row.get("BRANCH_COVERED") or 0)
+                          l_m += int(row.get("LINE_MISSED") or 0)
+                          l_c += int(row.get("LINE_COVERED") or 0)
+                  lines.append("| `%s` | %s | %s | %s |" % (module, pct(i_c, i_m), pct(b_c, b_m), pct(l_c, l_m)))
+                  total[0] += i_m
+                  total[1] += i_c
+                  total[2] += b_m
+                  total[3] += b_c
+                  total[4] += l_m
+                  total[5] += l_c
 
-          for csv_path in csv_files:
-              parts = csv_path.parts
-              try:
-                  idx = parts.index("target")
-                  module = parts[idx - 1] if idx > 0 else csv_path.parent.parent.parent.name
-              except ValueError:
-                  module = str(csv_path)
-              i_m = i_c = b_m = b_c = l_m = l_c = 0
-              with csv_path.open(newline="", encoding="utf-8") as fh:
-                  for row in csv.DictReader(fh):
-                      i_m += int(row.get("INSTRUCTION_MISSED") or 0)
-                      i_c += int(row.get("INSTRUCTION_COVERED") or 0)
-                      b_m += int(row.get("BRANCH_MISSED") or 0)
-                      b_c += int(row.get("BRANCH_COVERED") or 0)
-                      l_m += int(row.get("LINE_MISSED") or 0)
-                      l_c += int(row.get("LINE_COVERED") or 0)
-              lines.append("| `%s` | %s | %s | %s |" % (module, pct(i_c, i_m), pct(b_c, b_m), pct(l_c, l_m)))
-              total[0] += i_m
-              total[1] += i_c
-              total[2] += b_m
-              total[3] += b_c
-              total[4] += l_m
-              total[5] += l_c
+              lines.append(
+                  "| **TOTAL** | **%s** | **%s** | **%s** |"
+                  % (pct(total[1], total[0]), pct(total[3], total[2]), pct(total[5], total[4]))
+              )
+          with summary.open("a", encoding="utf-8") as out:
+              out.write(nl.join(lines) + nl)
+          PY
 
-          lines.append(
-              "| **TOTAL** | **%s** | **%s** | **%s** |"
-              % (pct(total[1], total[0]), pct(total[3], total[2]), pct(total[5], total[4]))
-          )
+      - name: SpotBugs summary
+        if: always() && !cancelled()
+        working-directory: ${{ inputs.workdir }}
+        run: |
+          python3 <<'PY'
+          import os
+          import xml.etree.ElementTree as ET
+          from pathlib import Path
+
+          nl = chr(10)
+          summary = Path(os.environ["GITHUB_STEP_SUMMARY"])
+          run_id = os.environ.get("GITHUB_RUN_ID", "")
+          lines = [
+              "## SpotBugs",
+              "",
+              "详情见 Artifact `spotbugs-%s`（`spotbugsXml.xml` / `spotbugs.html`）。" % run_id,
+              "",
+          ]
+          xml_files = sorted(Path(".").glob("**/target/spotbugsXml.xml"))
+          if not xml_files:
+              lines.append("_未找到 spotbugsXml.xml（可能未配置插件或分析被跳过）_")
+          else:
+              lines.extend(["| Module | Bugs (reported) |", "| --- | ---: |"])
+              total_bugs = 0
+              for xml_path in xml_files:
+                  parts = xml_path.parts
+                  try:
+                      idx = parts.index("target")
+                      module = parts[idx - 1] if idx > 0 else str(xml_path)
+                  except ValueError:
+                      module = str(xml_path)
+                  try:
+                      root = ET.parse(xml_path).getroot()
+                      n = len(root.findall("BugInstance"))
+                  except Exception:
+                      n = 0
+                  total_bugs += n
+                  lines.append("| `%s` | %d |" % (module, n))
+              lines.append("| **TOTAL** | **%d** |" % total_bugs)
           with summary.open("a", encoding="utf-8") as out:
               out.write(nl.join(lines) + nl)
           PY

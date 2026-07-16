@@ -54,8 +54,8 @@ jobs:
       - name: Init builder env
         run: init_env.sh
 
-      - name: Run unit tests with JaCoCo
-        run: cd ${{ inputs.workdir }} && mvn -B clean test
+      - name: Run unit tests, JaCoCo and SpotBugs
+        run: cd ${{ inputs.workdir }} && mvn -B clean verify -DskipITs
 
       - name: Upload JaCoCo reports
         if: always() && !cancelled()
@@ -67,6 +67,17 @@ jobs:
             ${{ inputs.workdir }}/**/target/site/jacoco/index.html
             ${{ inputs.workdir }}/**/target/site/jacoco/jacoco.xml
             ${{ inputs.workdir }}/**/target/site/jacoco/jacoco.csv
+          if-no-files-found: warn
+          retention-days: 7
+
+      - name: Upload SpotBugs reports
+        if: always() && !cancelled()
+        uses: actions/upload-artifact@v4
+        with:
+          name: spotbugs-${{ github.run_id }}
+          path: |
+            ${{ inputs.workdir }}/**/target/spotbugsXml.xml
+            ${{ inputs.workdir }}/**/target/site/spotbugs.html
           if-no-files-found: warn
           retention-days: 7
 
