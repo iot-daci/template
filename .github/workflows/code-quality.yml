@@ -82,6 +82,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Check kind
+        env:
+          QUALITY_CMD: ${{ inputs.quality_command }}
         run: |
           kind="${{ inputs.kind }}"
           case "$kind" in
@@ -94,7 +96,7 @@ jobs:
               ;;
           esac
           if [ "$kind" = "frontend" ] || [ "$kind" = "portal" ] || [ "$kind" = "docs" ]; then
-            if [ -z "${{ inputs.quality_command }}" ]; then
+            if [ -z "$QUALITY_CMD" ]; then
               echo "quality_command is required when kind=$kind"
               exit 1
             fi
