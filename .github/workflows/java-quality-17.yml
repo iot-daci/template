@@ -81,11 +81,10 @@ jobs:
         with:
           name: jacoco-coverage-${{ steps.label.outputs.value }}-${{ github.run_id }}
           path: |
-            ${{ inputs.workdir }}/**/target/site/jacoco/index.html
-            ${{ inputs.workdir }}/**/target/site/jacoco/jacoco.xml
-            ${{ inputs.workdir }}/**/target/site/jacoco/jacoco.csv
+            ${{ inputs.workdir }}/**/target/site/jacoco/**
+            ${{ inputs.workdir }}/**/target/jacoco.exec
           if-no-files-found: warn
-          retention-days: 7
+          retention-days: 10
 
       - name: JaCoCo coverage summary
         if: always() && !cancelled()
@@ -106,7 +105,7 @@ jobs:
           lines = [
               "## JaCoCo Coverage",
               "",
-              "汇总报告见 Artifact `%s`（各模块 `index.html` / `jacoco.xml` / `jacoco.csv`）。" % artifact,
+              "汇总报告见 Artifact `%s`（完整 `site/jacoco/**` HTML 站点 + `jacoco.exec`）。" % artifact,
               "",
           ]
           csv_files = sorted(Path(".").glob("**/target/site/jacoco/jacoco.csv"))
@@ -207,8 +206,10 @@ jobs:
             ${{ inputs.workdir }}/**/target/spotbugsXml.xml
             ${{ inputs.workdir }}/**/target/spotbugs.xml
             ${{ inputs.workdir }}/**/target/site/spotbugs.html
+            ${{ inputs.workdir }}/**/target/site/spotbugs/**
+            ${{ inputs.workdir }}/**/target/spotbugs/**
           if-no-files-found: warn
-          retention-days: 7
+          retention-days: 10
 
       - name: SpotBugs summary
         if: always() && !cancelled()
@@ -231,7 +232,7 @@ jobs:
               "## SpotBugs + FindSecBugs",
               "",
               (
-                  "详情见 Artifact `%s`（`spotbugsXml.xml` / `site/spotbugs.html`）。"
+                  "详情见 Artifact `%s`（完整 SpotBugs XML + HTML 站点）。"
                   "默认 `spotbugs.failOnError=false`（只报告）；可用 `-Dspotbugs.failOnError=true` 门禁。"
               )
               % artifact,
@@ -380,10 +381,17 @@ jobs:
           path: |
             ${{ inputs.workdir }}/**/dependency-check-report.html
             ${{ inputs.workdir }}/**/dependency-check-report.json
+            ${{ inputs.workdir }}/**/dependency-check-report.xml
+            ${{ inputs.workdir }}/**/dependency-check-report.csv
+            ${{ inputs.workdir }}/**/dependency-check-report.*
             ${{ inputs.workdir }}/**/target/dependency-check-report.html
             ${{ inputs.workdir }}/**/target/dependency-check-report.json
+            ${{ inputs.workdir }}/**/target/dependency-check-report.xml
+            ${{ inputs.workdir }}/**/target/dependency-check-report.csv
+            ${{ inputs.workdir }}/**/target/dependency-check-report.*
+            ${{ inputs.workdir }}/**/target/dependency-check/**
           if-no-files-found: warn
-          retention-days: 7
+          retention-days: 10
 
       - name: OWASP Dependency-Check summary
         if: always() && !cancelled()
@@ -406,7 +414,7 @@ jobs:
               "## OWASP Dependency-Check",
               "",
               (
-                  "详情见 Artifact `%s`（HTML/JSON）。默认 failBuildOnCVSS=11（只报告）；"
+                  "详情见 Artifact `%s`（完整 HTML/JSON/XML/CSV）。默认 failBuildOnCVSS=11（只报告）；"
                   "可用 `-Ddependency-check.failBuildOnCVSS=7` 对 High+ 门禁。"
               )
               % artifact,
