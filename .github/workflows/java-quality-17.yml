@@ -58,7 +58,7 @@ jobs:
         id: mvn-cache-dir-path
         run: echo "dir=/root/.m2" >>$GITHUB_OUTPUT
 
-      - name: Use cache
+      - name: Use Maven cache
         uses: actions/cache@v4
         with:
           path: ${{ steps.mvn-cache-dir-path.outputs.dir }}
@@ -66,6 +66,17 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-m2-${{ hashFiles('**/pom.xml') }}
             ${{ runner.os }}-m2-
+
+      # NVD 本地库在 ~/.m2/.../dependency-check-data（约数百 MB）。
+      # 单独缓存：命中后只需增量更新，避免每次全量拉 30万+ 条。
+      - name: Cache OWASP NVD data
+        uses: actions/cache@v4
+        with:
+          path: /root/.m2/repository/org/owasp/dependency-check-data
+          key: ${{ runner.os }}-owasp-nvd-12.2.2-${{ github.run_id }}
+          restore-keys: |
+            ${{ runner.os }}-owasp-nvd-12.2.2-
+            ${{ runner.os }}-owasp-nvd-
 
       - name: Init builder env
         run: init_env.sh
