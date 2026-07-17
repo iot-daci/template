@@ -6,8 +6,9 @@ GitHub Actions 可复用 workflow 模板库。业务仓库通过 `workflow_call`
 
 | 文件 | 说明 |
 |------|------|
-| `java.yml` / `java-17.yml` | Java 应用构建与 Docker 镜像；可选 `run_unit_tests`（默认 `false`），为 true 时先跑独立 `Unit tests` job（`mvn clean test jacoco:report`），上传 JaCoCo Artifact 并写 Step Summary，通过后再打包 |
-| `java-lib.yml` / `java-lib-17.yml` | Java 库构建；可选 `run_unit_tests`（默认 `false`），为 true 时先跑独立 `Unit tests` job（含 JaCoCo 报告），通过后再部署 |
+| `java.yml` / `java-17.yml` | Java 应用构建与 Docker 镜像 |
+| `java-lib.yml` / `java-lib-17.yml` | Java 库构建与部署 |
+| `java-quality-17.yml` | Java 17 质量检查（可复用）：单元测试 + JaCoCo、P3C/PMD、SpotBugs+FindSecBugs、OWASP Dependency-Check；上传 Artifact 并写 Step Summary |
 | `docker.yml` | Docker 镜像构建 |
 | `js.yml` | 前端构建 |
 | `npm-publish.yml` | npm 包发布（pnpm monorepo，阿里云私服） |
