@@ -8,7 +8,7 @@ GitHub Actions 可复用 workflow 模板库。业务仓库通过 `workflow_call`
 |------|------|
 | `java.yml` / `java-17.yml` | Java 应用构建与 Docker 镜像 |
 | `java-lib.yml` / `java-lib-17.yml` | Java 库构建与部署 |
-| **`code-quality.yml`** | **统一代码质量检查**：caller 传 `kind`（`server` / `frontend` / `portal` / `docs`）决定跑哪套检测 |
+| **`code-quality.yml`** | **代码质量检查**（可复用）：caller 传 `kind`（当前仅 `server`）；Java 并行跑单测+JaCoCo、SpotBugs |
 | `docker.yml` | Docker 镜像构建 |
 | `js.yml` | 前端构建 |
 | `npm-publish.yml` | npm 包发布（pnpm monorepo，阿里云私服） |
@@ -20,55 +20,41 @@ GitHub Actions 可复用 workflow 模板库。业务仓库通过 `workflow_call`
 | **`claude-pr-review-auto.yml`** | **PR Code Review（Claude，/review 触发，由 Claude 自行通过 gh 拉取 diff）** |
 | **`claude-feature-doc-review.yml`** | **Feature 设计文档审查（Claude，feature-* push 且 `dev-doc/docs` 变更时自动审核需求/技术方案）** |
 
-## 多域 Quality Gate（推荐）
+## Code Quality Gate（Java）
 
-Monorepo 按域拆检测逻辑，**一个 workflow + 一个 Gate** 即可；分支保护只勾 `Code Quality Gate`。
+目前仅覆盖 **Java（server）**。业务仓用独立 caller，**只在 PR → main** 触发（不要挂在 feature push 构建流水线上）。
 
 ```
 PR → main
- └─ Quality Checks
-      ├─ Detect changes（判断改了 server / portal / docs …）
-      ├─ 对应域真跑 code-quality（未改的 skip）
-      └─ Code Quality Gate  ✅ 必勾（汇总所有域结果）
+ └─ Code Quality Checks
+      ├─ Detect changes（是否改了 server/**）
+      ├─ 有变更则跑 code-quality.yml（单测 + SpotBugs）
+      └─ Code Quality Gate  ✅ 分支保护只勾这一项
 ```
 
 | PR 改动 | Gate |
 |---------|------|
-| 只改某域 | 该域真跑，其它 skip，Gate 看该域结果 |
-| 多域都改 | 都跑，任一失败则 Gate fail |
-| 都没改到 | 全部 skip，Gate 直接 pass |
+| 改了 server | 真跑检测 |
+| 未改 server | skip 检测，Gate 直接 pass |
 | draft | 整条 workflow 跳过 |
 
 **约定**
 
-1. Workflow **不要**用 `on.pull_request.paths` 过滤（否则未改时 Gate 不会出现，分支保护会卡住）。始终触发，用 `changes` job 判断。
-2. 分支保护只勾 `Code Quality Gate`，**不要**勾 Unit tests / SpotBugs / Portal Next Quality 等子 job。
-3. 不要用账号 / Org Ruleset 绑这些检查；在**每个仓库**的 `main` 上分别勾。
-4. 以后加新域：在 caller 里加一段 `quality-*` job + 在 Gate 的 `check` 里加一行即可。
-
-### 统一模板 `code-quality.yml`
-
-业务仓按域拆 Gate caller，**都调用同一个模板**，用 `kind` 选检测类型：
-
-| `kind` | 行为 | 常用 inputs |
-|--------|------|-------------|
-| `server` | Java 单测+JaCoCo、SpotBugs+FindSecBugs（并行） | `workdir`, `modules` |
-| `frontend` / `portal` | Node：install + `quality_command`（lint / typecheck 等） | `workdir`, `quality_command`, 可选 `install_command` / `enable_cache` |
-| `docs` | Node：install + `quality_command`（prepare-site / markdown 等） | `workdir`, `quality_command`, 可选 `package_manager`（`npm`/`pnpm`/`none`） |
+1. Workflow **不要**用 `on.pull_request.paths` 过滤（否则未改时 Gate 不会出现）。始终触发，用 `changes` job 判断。
+2. 分支保护只勾 `Code Quality Gate`（或业务仓里同名 Gate），**不要**勾 Unit tests / SpotBugs 子 job。
+3. 不要用账号 / Org Ruleset 绑这些检查。
 
 ```yaml
 jobs:
   quality:
     uses: iot-daci/template/.github/workflows/code-quality.yml@main
     with:
-      kind: server          # 或 frontend / portal / docs
-      workdir: server
-    # frontend/docs 装私服包时：
-    # secrets:
-    #   NPM_AUTH_TOKEN: ${{ secrets.NPM_AUTH_TOKEN }}
+      kind: server      # 当前仅实现 server；后续可加 frontend / docs 等
+      workdir: server   # 或 yudao-cloud
+      # modules: -pl xxx -am
 ```
 
-示例 caller：[examples/code-quality-caller.yml](examples/code-quality-caller.yml)。以后加新类别（如 `mobile`）时在模板里加分支即可，caller 只改 `kind`。
+示例 caller：[examples/code-quality-caller.yml](examples/code-quality-caller.yml)。
 
 ## Auto Sync Features → Dev
 

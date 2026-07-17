@@ -1,7 +1,7 @@
-# 示例：业务仓一个 code-quality-check.yml，按域检测后汇总成一个 Code Quality Gate
+# 示例：业务仓 code-quality-check.yml（目前仅 Java / server）
 # 分支保护只勾「Code Quality Gate」
 
-name: Quality Checks
+name: Code Quality Checks
 
 on:
   pull_request:
@@ -16,11 +16,11 @@ concurrency:
 
 jobs:
   changes:
-    name: Detect changes
+    name: Detect server changes
     if: github.event_name == 'workflow_dispatch' || github.event.pull_request.draft == false
     runs-on: ubuntu-latest
     outputs:
-      need_portal: ${{ steps.set.outputs.need_portal }}
+      need_quality: ${{ steps.set.outputs.need_quality }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -28,41 +28,42 @@ jobs:
       - id: set
         run: |
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            echo "need_portal=true" >> "$GITHUB_OUTPUT"
+            echo "need_quality=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
           base="${{ github.event.pull_request.base.sha }}"
           head="${{ github.event.pull_request.head.sha }}"
-          if git diff --name-only "$base" "$head" | grep -qE '^(portal-next/|\.github/workflows/code-quality-check\.yml)'; then
-            echo "need_portal=true" >> "$GITHUB_OUTPUT"
+          if git diff --name-only "$base" "$head" | grep -qE '^(server/|\.github/workflows/code-quality-check\.yml)'; then
+            echo "need_quality=true" >> "$GITHUB_OUTPUT"
           else
-            echo "need_portal=false" >> "$GITHUB_OUTPUT"
+            echo "need_quality=false" >> "$GITHUB_OUTPUT"
           fi
 
-  quality-portal:
-    name: Portal Quality
+  quality:
+    name: Server Quality
     needs: changes
-    if: needs.changes.outputs.need_portal == 'true'
+    if: needs.changes.outputs.need_quality == 'true'
     uses: iot-daci/template/.github/workflows/code-quality.yml@main
     with:
-      kind: portal
-      workdir: portal-next
-      quality_command: pnpm lint && pnpm check:type
-    secrets:
-      NPM_AUTH_TOKEN: ${{ secrets.NPM_AUTH_TOKEN }}
+      kind: server
+      workdir: server
 
   quality-gate:
     name: Code Quality Gate
-    needs: [changes, quality-portal]
+    needs: [changes, quality]
     if: always() && (github.event_name == 'workflow_dispatch' || github.event.pull_request.draft == false)
     runs-on: ubuntu-latest
     steps:
       - name: Evaluate gate
         run: |
-          need="${{ needs.changes.outputs.need_portal }}"
-          result="${{ needs.quality-portal.result }}"
-          if [ "$need" = "true" ] && [ "$result" != "success" ]; then
-            echo "Portal quality failed (result=$result)"
-            exit 1
+          need="${{ needs.changes.outputs.need_quality }}"
+          result="${{ needs.quality.result }}"
+          if [ "$need" != "true" ]; then
+            echo "No server changes — gate pass"
+            exit 0
           fi
-          echo "Code quality gate pass"
+          if [ "$result" = "success" ]; then
+            exit 0
+          fi
+          echo "Server quality did not succeed (result=$result)"
+          exit 1
