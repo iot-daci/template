@@ -91,14 +91,20 @@ jobs:
           cd ${{ inputs.workdir }}
           mvn -B -DskipTests compile spotbugs:spotbugs ${{ inputs.modules }}
 
-      # 与 test 拆开：NVD 更新较慢；可选配置 secrets.NVD_API_KEY
+      # 与 test 拆开：NVD 更新较慢；需在「调用方仓库」配置 secret NVD_API_KEY（不是 template 仓）
       - name: OWASP Dependency-Check
         if: always() && !cancelled()
         env:
           NVD_API_KEY: ${{ secrets.NVD_API_KEY }}
         run: |
           cd ${{ inputs.workdir }}
+          if [ -z "${NVD_API_KEY:-}" ]; then
+            echo "::warning::NVD_API_KEY 未传入本 job。请在调用方仓库（如 vpay/vcard）Settings → Secrets 配置 NVD_API_KEY，并确保 workflow 使用 secrets: inherit 或显式传递。配在 template 仓无效。"
+          else
+            echo "NVD_API_KEY is set (length=${#NVD_API_KEY})"
+          fi
           mvn -B -DskipTests \
+            -DnvdApiKeyEnvironmentVariable=NVD_API_KEY \
             org.owasp:dependency-check-maven:12.2.2:check \
             ${{ inputs.modules }}
 
