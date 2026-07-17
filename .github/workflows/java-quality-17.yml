@@ -26,9 +26,16 @@ concurrency:
   group: java-quality-${{ github.workflow }}-${{ inputs.ref || github.ref }}
   cancel-in-progress: true
 
+env:
+  WORKDIR: ${{ inputs.workdir }}
+  MODULES: ${{ inputs.modules }}
+  CHECKOUT_REF: ${{ inputs.ref != '' && inputs.ref || github.sha }}
+
 jobs:
-  quality:
-    name: ${{ inputs.ref != '' && format('Tests & analysis ({0})', inputs.ref) || 'Tests & static analysis' }}
+  # ── 共用：三个 job 并行启动（单测 / SpotBugs / OWASP）──
+
+  unit-tests:
+    name: ${{ inputs.ref != '' && format('Unit tests ({0})', inputs.ref) || 'Unit tests' }}
     runs-on: ubuntu-latest
     container:
       image: lzk90s/java-develop-env:maven3-openjdk17
@@ -38,7 +45,7 @@ jobs:
       - name: Checkout source
         uses: actions/checkout@v4
         with:
-          ref: ${{ inputs.ref != '' && inputs.ref || github.sha }}
+          ref: ${{ env.CHECKOUT_REF }}
 
       - name: Resolve artifact label
         id: label
@@ -50,63 +57,23 @@ jobs:
               label="$(printf '%s' "$GITHUB_SHA" | cut -c1-7)"
             fi
           fi
-          # artifact 名不允许 /（POSIX：容器默认 sh 无 bash 的 ${var//pat/repl}）
           label="$(printf '%s' "$label" | tr '/' '-')"
           echo "value=$label" >>"$GITHUB_OUTPUT"
-
-      - name: Get cache directory path
-        id: mvn-cache-dir-path
-        run: echo "dir=/root/.m2" >>$GITHUB_OUTPUT
 
       - name: Use Maven cache
         uses: actions/cache@v4
         with:
-          path: ${{ steps.mvn-cache-dir-path.outputs.dir }}
-          key: ${{ runner.os }}-m2-${{ hashFiles('**/pom.xml') }}
+          path: /root/.m2
+          key: ${{ runner.os }}-m2-${{ github.job }}-${{ hashFiles('**/pom.xml') }}-${{ github.run_id }}
           restore-keys: |
-            ${{ runner.os }}-m2-${{ hashFiles('**/pom.xml') }}
             ${{ runner.os }}-m2-
-
-      # NVD 本地库在 ~/.m2/.../dependency-check-data（约数百 MB）。
-      # 单独缓存：命中后只需增量更新，避免每次全量拉 30万+ 条。
-      - name: Cache OWASP NVD data
-        uses: actions/cache@v4
-        with:
-          path: /root/.m2/repository/org/owasp/dependency-check-data
-          key: ${{ runner.os }}-owasp-nvd-12.2.2-${{ github.run_id }}
-          restore-keys: |
-            ${{ runner.os }}-owasp-nvd-12.2.2-
-            ${{ runner.os }}-owasp-nvd-
+            ${{ runner.os }}-m2
 
       - name: Init builder env
         run: init_env.sh
 
       - name: Run unit tests with JaCoCo
-        run: cd ${{ inputs.workdir }} && mvn -B clean test ${{ inputs.modules }}
-
-      # SpotBugs + FindSecBugs（配置在各项目父 POM；默认 failOnError=false 只出报告）
-      - name: SpotBugs + FindSecBugs
-        if: always() && !cancelled()
-        run: |
-          cd ${{ inputs.workdir }}
-          mvn -B -DskipTests compile spotbugs:spotbugs ${{ inputs.modules }}
-
-      # 与 test 拆开：NVD 更新较慢；需在「调用方仓库」配置 secret NVD_API_KEY（不是 template 仓）
-      - name: OWASP Dependency-Check
-        if: always() && !cancelled()
-        env:
-          NVD_API_KEY: ${{ secrets.NVD_API_KEY }}
-        run: |
-          cd ${{ inputs.workdir }}
-          if [ -z "${NVD_API_KEY:-}" ]; then
-            echo "::warning::NVD_API_KEY 未传入本 job。请在调用方仓库（如 vpay/vcard）Settings → Secrets 配置 NVD_API_KEY，并确保 workflow 使用 secrets: inherit 或显式传递。配在 template 仓无效。"
-          else
-            echo "NVD_API_KEY is set (length=${#NVD_API_KEY})"
-          fi
-          mvn -B -DskipTests \
-            -DnvdApiKeyEnvironmentVariable=NVD_API_KEY \
-            org.owasp:dependency-check-maven:12.2.2:check \
-            ${{ inputs.modules }}
+        run: cd "$WORKDIR" && mvn -B clean test $MODULES
 
       - name: Upload JaCoCo reports
         if: always() && !cancelled()
@@ -117,31 +84,6 @@ jobs:
             ${{ inputs.workdir }}/**/target/site/jacoco/index.html
             ${{ inputs.workdir }}/**/target/site/jacoco/jacoco.xml
             ${{ inputs.workdir }}/**/target/site/jacoco/jacoco.csv
-          if-no-files-found: warn
-          retention-days: 7
-
-      - name: Upload SpotBugs reports
-        if: always() && !cancelled()
-        uses: actions/upload-artifact@v4
-        with:
-          name: spotbugs-${{ steps.label.outputs.value }}-${{ github.run_id }}
-          path: |
-            ${{ inputs.workdir }}/**/target/spotbugsXml.xml
-            ${{ inputs.workdir }}/**/target/spotbugs.xml
-            ${{ inputs.workdir }}/**/target/site/spotbugs.html
-          if-no-files-found: warn
-          retention-days: 7
-
-      - name: Upload OWASP Dependency-Check reports
-        if: always() && !cancelled()
-        uses: actions/upload-artifact@v4
-        with:
-          name: dependency-check-${{ steps.label.outputs.value }}-${{ github.run_id }}
-          path: |
-            ${{ inputs.workdir }}/**/dependency-check-report.html
-            ${{ inputs.workdir }}/**/dependency-check-report.json
-            ${{ inputs.workdir }}/**/target/dependency-check-report.html
-            ${{ inputs.workdir }}/**/target/dependency-check-report.json
           if-no-files-found: warn
           retention-days: 7
 
@@ -213,9 +155,66 @@ jobs:
               out.write(nl.join(lines) + nl)
           PY
 
+  spotbugs:
+    name: ${{ inputs.ref != '' && format('SpotBugs ({0})', inputs.ref) || 'SpotBugs' }}
+    runs-on: ubuntu-latest
+    container:
+      image: lzk90s/java-develop-env:maven3-openjdk17
+      volumes:
+        - /root/.m2:/root/.m2
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.CHECKOUT_REF }}
+
+      - name: Resolve artifact label
+        id: label
+        run: |
+          label="${{ inputs.ref }}"
+          if [ -z "$label" ]; then
+            label="${GITHUB_REF_NAME:-}"
+            if [ -z "$label" ]; then
+              label="$(printf '%s' "$GITHUB_SHA" | cut -c1-7)"
+            fi
+          fi
+          label="$(printf '%s' "$label" | tr '/' '-')"
+          echo "value=$label" >>"$GITHUB_OUTPUT"
+
+      - name: Use Maven cache
+        uses: actions/cache@v4
+        with:
+          path: /root/.m2
+          key: ${{ runner.os }}-m2-${{ github.job }}-${{ hashFiles('**/pom.xml') }}-${{ github.run_id }}
+          restore-keys: |
+            ${{ runner.os }}-m2-
+            ${{ runner.os }}-m2
+
+      - name: Init builder env
+        run: init_env.sh
+
+      - name: SpotBugs + FindSecBugs
+        run: |
+          cd "$WORKDIR"
+          mvn -B -DskipTests compile spotbugs:spotbugs $MODULES
+
+      - name: Upload SpotBugs reports
+        if: always() && !cancelled()
+        uses: actions/upload-artifact@v4
+        with:
+          name: spotbugs-${{ steps.label.outputs.value }}-${{ github.run_id }}
+          path: |
+            ${{ inputs.workdir }}/**/target/spotbugsXml.xml
+            ${{ inputs.workdir }}/**/target/spotbugs.xml
+            ${{ inputs.workdir }}/**/target/site/spotbugs.html
+          if-no-files-found: warn
+          retention-days: 7
+
       - name: SpotBugs summary
         if: always() && !cancelled()
         working-directory: ${{ inputs.workdir }}
+        env:
+          ARTIFACT_LABEL: ${{ steps.label.outputs.value }}
         run: |
           python3 <<'PY'
           import os
@@ -226,14 +225,16 @@ jobs:
           nl = chr(10)
           summary = Path(os.environ["GITHUB_STEP_SUMMARY"])
           run_id = os.environ.get("GITHUB_RUN_ID", "")
+          label = os.environ.get("ARTIFACT_LABEL", "")
+          artifact = "spotbugs-%s-%s" % (label, run_id) if label else ("spotbugs-%s" % run_id)
           lines = [
               "## SpotBugs + FindSecBugs",
               "",
               (
-                  "详情见 Artifact `spotbugs-%s`（`spotbugsXml.xml` / `site/spotbugs.html`）。"
+                  "详情见 Artifact `%s`（`spotbugsXml.xml` / `site/spotbugs.html`）。"
                   "默认 `spotbugs.failOnError=false`（只报告）；可用 `-Dspotbugs.failOnError=true` 门禁。"
               )
-              % run_id,
+              % artifact,
               "",
           ]
 
@@ -248,7 +249,6 @@ jobs:
           reports = []
           for pattern in ("**/target/spotbugsXml.xml", "**/target/spotbugs.xml"):
               reports.extend(Path(".").glob(pattern))
-          # de-dupe preferring spotbugsXml.xml
           by_mod = {}
           for p in reports:
               key = (module_name(p), p.parent)
@@ -276,7 +276,6 @@ jobs:
                   types = Counter()
                   for b in bugs:
                       rank = (b.get("priority") or "").strip()
-                      # SpotBugs priority: 1=High, 2=Medium, 3=Low
                       if rank == "1":
                           ranks["High"] += 1
                       elif rank == "2":
@@ -310,9 +309,87 @@ jobs:
               out.write(nl.join(lines) + nl)
           PY
 
+  dependency-check:
+    name: ${{ inputs.ref != '' && format('OWASP DC ({0})', inputs.ref) || 'OWASP Dependency-Check' }}
+    runs-on: ubuntu-latest
+    container:
+      image: lzk90s/java-develop-env:maven3-openjdk17
+      volumes:
+        - /root/.m2:/root/.m2
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.CHECKOUT_REF }}
+
+      - name: Resolve artifact label
+        id: label
+        run: |
+          label="${{ inputs.ref }}"
+          if [ -z "$label" ]; then
+            label="${GITHUB_REF_NAME:-}"
+            if [ -z "$label" ]; then
+              label="$(printf '%s' "$GITHUB_SHA" | cut -c1-7)"
+            fi
+          fi
+          label="$(printf '%s' "$label" | tr '/' '-')"
+          echo "value=$label" >>"$GITHUB_OUTPUT"
+
+      - name: Use Maven cache
+        uses: actions/cache@v4
+        with:
+          path: /root/.m2
+          key: ${{ runner.os }}-m2-${{ github.job }}-${{ hashFiles('**/pom.xml') }}-${{ github.run_id }}
+          restore-keys: |
+            ${{ runner.os }}-m2-
+            ${{ runner.os }}-m2
+
+      # NVD 本地库单独缓存：命中后只需增量更新
+      - name: Cache OWASP NVD data
+        uses: actions/cache@v4
+        with:
+          path: /root/.m2/repository/org/owasp/dependency-check-data
+          key: ${{ runner.os }}-owasp-nvd-12.2.2-${{ github.run_id }}
+          restore-keys: |
+            ${{ runner.os }}-owasp-nvd-12.2.2-
+            ${{ runner.os }}-owasp-nvd-
+
+      - name: Init builder env
+        run: init_env.sh
+
+      - name: OWASP Dependency-Check
+        env:
+          NVD_API_KEY: ${{ secrets.NVD_API_KEY }}
+        run: |
+          cd "$WORKDIR"
+          if [ -z "${NVD_API_KEY:-}" ]; then
+            echo "::warning::NVD_API_KEY 未传入本 job。请在调用方仓库（如 vpay/vcard）Settings → Secrets 配置 NVD_API_KEY。配在 template 仓无效。"
+          else
+            echo "NVD_API_KEY is set (length=${#NVD_API_KEY})"
+          fi
+          mvn -B -DskipTests \
+            -DnvdApiKeyEnvironmentVariable=NVD_API_KEY \
+            org.owasp:dependency-check-maven:12.2.2:check \
+            $MODULES
+
+      - name: Upload OWASP Dependency-Check reports
+        if: always() && !cancelled()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dependency-check-${{ steps.label.outputs.value }}-${{ github.run_id }}
+          path: |
+            ${{ inputs.workdir }}/**/dependency-check-report.html
+            ${{ inputs.workdir }}/**/dependency-check-report.json
+            ${{ inputs.workdir }}/**/target/dependency-check-report.html
+            ${{ inputs.workdir }}/**/target/dependency-check-report.json
+          if-no-files-found: warn
+          retention-days: 7
+
       - name: OWASP Dependency-Check summary
         if: always() && !cancelled()
         working-directory: ${{ inputs.workdir }}
+        env:
+          ARTIFACT_LABEL: ${{ steps.label.outputs.value }}
         run: |
           python3 <<'PY'
           import json
@@ -323,14 +400,16 @@ jobs:
           nl = chr(10)
           summary = Path(os.environ["GITHUB_STEP_SUMMARY"])
           run_id = os.environ.get("GITHUB_RUN_ID", "")
+          label = os.environ.get("ARTIFACT_LABEL", "")
+          artifact = "dependency-check-%s-%s" % (label, run_id) if label else ("dependency-check-%s" % run_id)
           lines = [
               "## OWASP Dependency-Check",
               "",
               (
-                  "详情见 Artifact `dependency-check-%s`（HTML/JSON）。默认 failBuildOnCVSS=11（只报告）；"
+                  "详情见 Artifact `%s`（HTML/JSON）。默认 failBuildOnCVSS=11（只报告）；"
                   "可用 `-Ddependency-check.failBuildOnCVSS=7` 对 High+ 门禁。"
               )
-              % run_id,
+              % artifact,
               "",
           ]
 
@@ -344,7 +423,7 @@ jobs:
 
           def score_of(vuln):
               for key in ("cvssv3", "cvssV3", "cvssv2", "cvssV2"):
-                  block = (vuln.get("severity") or {}).get(key) or vuln.get(key)
+                  block = vuln.get(key)
                   if isinstance(block, dict):
                       for sk in ("baseScore", "score"):
                           if block.get(sk) is not None:
