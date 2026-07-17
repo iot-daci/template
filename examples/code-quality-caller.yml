@@ -1,7 +1,7 @@
-# 示例：业务仓按域各写一个 caller，都调用同一个 code-quality.yml，用 kind 区分
-# 分支保护只勾「* Quality Gate」
+# 示例：业务仓一个 code-quality-check.yml，按域检测后汇总成一个 Code Quality Gate
+# 分支保护只勾「Code Quality Gate」
 
-name: Frontend Quality Checks
+name: Quality Checks
 
 on:
   pull_request:
@@ -11,16 +11,16 @@ on:
   workflow_dispatch:
 
 concurrency:
-  group: frontend-quality-${{ github.event.pull_request.number || github.ref }}
+  group: code-quality-check-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 jobs:
   changes:
-    name: Detect frontend changes
+    name: Detect changes
     if: github.event_name == 'workflow_dispatch' || github.event.pull_request.draft == false
     runs-on: ubuntu-latest
     outputs:
-      need_quality: ${{ steps.set.outputs.need_quality }}
+      need_portal: ${{ steps.set.outputs.need_portal }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -28,24 +28,23 @@ jobs:
       - id: set
         run: |
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            echo "need_quality=true" >> "$GITHUB_OUTPUT"
+            echo "need_portal=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
           base="${{ github.event.pull_request.base.sha }}"
           head="${{ github.event.pull_request.head.sha }}"
-          if git diff --name-only "$base" "$head" | grep -qE '^(portal-next/|admin-portal-next/|\.github/workflows/frontend-quality\.yml)'; then
-            echo "need_quality=true" >> "$GITHUB_OUTPUT"
+          if git diff --name-only "$base" "$head" | grep -qE '^(portal-next/|\.github/workflows/code-quality-check\.yml)'; then
+            echo "need_portal=true" >> "$GITHUB_OUTPUT"
           else
-            echo "need_quality=false" >> "$GITHUB_OUTPUT"
+            echo "need_portal=false" >> "$GITHUB_OUTPUT"
           fi
 
-  quality:
-    name: Frontend Quality
+  quality-portal:
+    name: Portal Quality
     needs: changes
-    if: needs.changes.outputs.need_quality == 'true'
+    if: needs.changes.outputs.need_portal == 'true'
     uses: iot-daci/template/.github/workflows/code-quality.yml@main
     with:
-      # kind: server | frontend | portal | docs
       kind: portal
       workdir: portal-next
       quality_command: pnpm lint && pnpm check:type
@@ -53,21 +52,17 @@ jobs:
       NPM_AUTH_TOKEN: ${{ secrets.NPM_AUTH_TOKEN }}
 
   quality-gate:
-    name: Frontend Quality Gate
-    needs: [changes, quality]
+    name: Code Quality Gate
+    needs: [changes, quality-portal]
     if: always() && (github.event_name == 'workflow_dispatch' || github.event.pull_request.draft == false)
     runs-on: ubuntu-latest
     steps:
       - name: Evaluate gate
         run: |
-          need="${{ needs.changes.outputs.need_quality }}"
-          result="${{ needs.quality.result }}"
-          if [ "$need" != "true" ]; then
-            echo "No frontend changes — gate pass"
-            exit 0
+          need="${{ needs.changes.outputs.need_portal }}"
+          result="${{ needs.quality-portal.result }}"
+          if [ "$need" = "true" ] && [ "$result" != "success" ]; then
+            echo "Portal quality failed (result=$result)"
+            exit 1
           fi
-          if [ "$result" = "success" ]; then
-            exit 0
-          fi
-          echo "Frontend quality did not succeed (result=$result)"
-          exit 1
+          echo "Code quality gate pass"

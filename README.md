@@ -22,30 +22,29 @@ GitHub Actions 可复用 workflow 模板库。业务仓库通过 `workflow_call`
 
 ## 多域 Quality Gate（推荐）
 
-Monorepo 按域拆 workflow，各自一个 Gate；分支保护勾多个 Gate，互不干扰。
+Monorepo 按域拆检测逻辑，**一个 workflow + 一个 Gate** 即可；分支保护只勾 `Code Quality Gate`。
 
 ```
 PR → main
- ├─ Server Quality Checks    → server/** / yudao-cloud/**
- │    └─ Server Quality Gate     ✅ 必勾
- ├─ Frontend Quality Checks  → portal-next/** / admin-portal-*/**
- │    └─ Frontend Quality Gate   ✅ 必勾
- └─ Docs Quality Checks      → openapi-doc/** / dev-doc/**
-      └─ Docs Quality Gate       ✅ 必勾
+ └─ Quality Checks
+      ├─ Detect changes（判断改了 server / portal / docs …）
+      ├─ 对应域真跑 code-quality（未改的 skip）
+      └─ Code Quality Gate  ✅ 必勾（汇总所有域结果）
 ```
 
-| PR 改动 | 对应域 Gate | 其它域 Gate |
-|---------|-------------|-------------|
-| 只改该域 | 真跑检测 | 直接 pass |
-| 多域都改 | 各自真跑 | — |
-| draft | 全部跳过 | — |
+| PR 改动 | Gate |
+|---------|------|
+| 只改某域 | 该域真跑，其它 skip，Gate 看该域结果 |
+| 多域都改 | 都跑，任一失败则 Gate fail |
+| 都没改到 | 全部 skip，Gate 直接 pass |
+| draft | 整条 workflow 跳过 |
 
 **约定**
 
-1. Workflow **不要**用 `on.pull_request.paths` 过滤（否则未改该域时 Gate 不会出现，分支保护会卡住）。始终触发，用 `changes` job 判断是否需要跑检测。
-2. 分支保护只勾 `* Quality Gate`，**不要**勾里面的 Unit tests / SpotBugs / Frontend checks 等子 job。
+1. Workflow **不要**用 `on.pull_request.paths` 过滤（否则未改时 Gate 不会出现，分支保护会卡住）。始终触发，用 `changes` job 判断。
+2. 分支保护只勾 `Code Quality Gate`，**不要**勾 Unit tests / SpotBugs / Portal Next Quality 等子 job。
 3. 不要用账号 / Org Ruleset 绑这些检查；在**每个仓库**的 `main` 上分别勾。
-4. 以后加新域（如 mobile / infra）：复制同一套 `changes → quality → * Quality Gate`，再勾一个新 Gate 即可。
+4. 以后加新域：在 caller 里加一段 `quality-*` job + 在 Gate 的 `check` 里加一行即可。
 
 ### 统一模板 `code-quality.yml`
 
