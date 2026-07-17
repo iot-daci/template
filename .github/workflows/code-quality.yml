@@ -1,36 +1,108 @@
-name: Java 17 quality checks
+name: Code quality checks
 
 on:
   workflow_call:
     inputs:
+      kind:
+        description: >
+          检测类别：server（Java 单测+SpotBugs）|
+          frontend / portal（Node 前端）|
+          docs（文档）
+        type: string
+        required: true
       workdir:
+        description: 工程根目录
         type: string
         required: false
         default: "."
       modules:
-        description: 传给 Maven 的额外参数，例如 -pl xxx -am
+        description: server 专用 — 传给 Maven 的额外参数，例如 -pl xxx -am
         type: string
         required: false
         default: ""
+      install_command:
+        description: >
+          frontend/docs 专用 — 安装依赖命令（相对 workdir）。
+          留空则按 package_manager 自动选择
+          （pnpm→frozen-lockfile / npm→npm ci / none→true）
+        type: string
+        required: false
+        default: ""
+      quality_command:
+        description: frontend/docs 专用 — 质量检查命令（相对 workdir）
+        type: string
+        required: false
+        default: ""
+      node_version:
+        type: string
+        required: false
+        default: "20"
+      package_manager:
+        description: frontend/docs 专用 — npm | pnpm | none；留空则 frontend/portal→pnpm、docs→npm
+        type: string
+        required: false
+        default: ""
+      pnpm_version:
+        description: pnpm 版本；留空则尝试读 workdir/package.json 的 packageManager
+        type: string
+        required: false
+        default: ""
+      enable_cache:
+        description: frontend 专用 — 是否用 lockfile 做依赖缓存（无 lockfile 时设 false）
+        type: boolean
+        required: false
+        default: true
+      registry_url:
+        type: string
+        required: false
+        default: "https://packages.aliyun.com/637eea4f126bcb821717c7ff/npm/npm-registry/"
       ref:
-        description: 要检测的 Git ref（分支/tag/SHA）；留空则用触发时的 ref
+        description: 要检测的 Git ref；留空则用触发时的 SHA
         type: string
         required: false
         default: ""
+    secrets:
+      NPM_AUTH_TOKEN:
+        description: 私服 npm token（frontend/docs 装私服包时需要）
+        required: false
 
 concurrency:
-  group: java-quality-${{ github.workflow }}-${{ inputs.ref || github.ref }}
+  group: code-quality-${{ inputs.kind }}-${{ github.workflow }}-${{ inputs.ref || github.ref }}-${{ inputs.workdir }}
   cancel-in-progress: true
 
 env:
   WORKDIR: ${{ inputs.workdir }}
   MODULES: ${{ inputs.modules }}
   CHECKOUT_REF: ${{ inputs.ref != '' && inputs.ref || github.sha }}
+  KIND: ${{ inputs.kind }}
 
 jobs:
-  # ── 并行：单测 + SpotBugs ──
+  validate:
+    name: Validate kind
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check kind
+        run: |
+          kind="${{ inputs.kind }}"
+          case "$kind" in
+            server|frontend|portal|docs)
+              echo "kind=$kind"
+              ;;
+            *)
+              echo "Unsupported kind='$kind'. Use: server | frontend | portal | docs"
+              exit 1
+              ;;
+          esac
+          if [ "$kind" = "frontend" ] || [ "$kind" = "portal" ] || [ "$kind" = "docs" ]; then
+            if [ -z "${{ inputs.quality_command }}" ]; then
+              echo "quality_command is required when kind=$kind"
+              exit 1
+            fi
+          fi
 
   unit-tests:
+    if: inputs.kind == 'server'
+    needs: validate
     name: ${{ inputs.ref != '' && format('Unit tests ({0})', inputs.ref) || 'Unit tests' }}
     runs-on: ubuntu-latest
     container:
@@ -151,6 +223,8 @@ jobs:
           PY
 
   spotbugs:
+    if: inputs.kind == 'server'
+    needs: validate
     name: ${{ inputs.ref != '' && format('SpotBugs ({0})', inputs.ref) || 'SpotBugs' }}
     runs-on: ubuntu-latest
     container:
@@ -306,3 +380,130 @@ jobs:
               out.write(nl.join(lines) + nl)
           PY
 
+
+  # ── frontend / portal / docs：Node 质量检查 ──
+
+  node:
+    name: ${{ inputs.kind == 'docs' && 'Docs checks' || 'Frontend checks' }}
+    if: inputs.kind == 'frontend' || inputs.kind == 'portal' || inputs.kind == 'docs'
+    needs: validate
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ${{ inputs.workdir }}
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.CHECKOUT_REF }}
+
+      - name: Resolve package manager & install
+        id: cfg
+        working-directory: ${{ github.workspace }}
+        run: |
+          kind="${{ inputs.kind }}"
+          pm="${{ inputs.package_manager }}"
+          install="${{ inputs.install_command }}"
+          if [ -z "$pm" ]; then
+            case "$kind" in
+              frontend|portal) pm=pnpm ;;
+              docs) pm=npm ;;
+            esac
+          fi
+          if [ -z "$install" ]; then
+            case "$pm" in
+              pnpm) install="pnpm install --frozen-lockfile" ;;
+              npm) install="npm ci" ;;
+              none) install="true" ;;
+              *)
+                echo "Unknown package_manager='$pm'"
+                exit 1
+                ;;
+            esac
+          fi
+          echo "package_manager=$pm" >>"$GITHUB_OUTPUT"
+          echo "install_command=$install" >>"$GITHUB_OUTPUT"
+          echo "Resolved package_manager=$pm"
+          echo "Resolved install_command=$install"
+
+      - name: Resolve pnpm version
+        id: pnpm
+        if: steps.cfg.outputs.package_manager == 'pnpm'
+        working-directory: ${{ github.workspace }}
+        run: |
+          ver="${{ inputs.pnpm_version }}"
+          pkg="${{ inputs.workdir }}/package.json"
+          if [ -z "$ver" ] && [ -f "$pkg" ]; then
+            ver="$(node -p "try{const p=require('./${{ inputs.workdir }}/package.json').packageManager||'';const m=/^pnpm@(.+)$/.exec(p);m?m[1]:''}catch(e){''}")"
+          fi
+          if [ -z "$ver" ]; then
+            ver="10"
+          fi
+          echo "version=$ver" >>"$GITHUB_OUTPUT"
+
+      - name: Setup pnpm
+        if: steps.cfg.outputs.package_manager == 'pnpm'
+        uses: pnpm/action-setup@v4
+        with:
+          version: ${{ steps.pnpm.outputs.version }}
+
+      - name: Setup Node.js (pnpm cache)
+        if: ${{ steps.cfg.outputs.package_manager == 'pnpm' && inputs.enable_cache }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ inputs.node_version }}
+          cache: pnpm
+          cache-dependency-path: |
+            ${{ inputs.workdir }}/pnpm-lock.yaml
+            ${{ inputs.workdir }}/**/pnpm-lock.yaml
+
+      - name: Setup Node.js (pnpm no cache)
+        if: ${{ steps.cfg.outputs.package_manager == 'pnpm' && !inputs.enable_cache }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ inputs.node_version }}
+
+      - name: Setup Node.js (npm cache)
+        if: steps.cfg.outputs.package_manager == 'npm'
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ inputs.node_version }}
+          cache: npm
+          cache-dependency-path: ${{ inputs.workdir }}/package-lock.json
+
+      - name: Setup Node.js (none)
+        if: steps.cfg.outputs.package_manager == 'none'
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ inputs.node_version }}
+
+      - name: Configure npm registry auth
+        if: steps.cfg.outputs.package_manager != 'none'
+        env:
+          NPM_AUTH_TOKEN: ${{ secrets.NPM_AUTH_TOKEN }}
+        run: |
+          if [ -z "${NPM_AUTH_TOKEN}" ]; then
+            echo "NPM_AUTH_TOKEN not set — using default registry auth (public only)"
+            exit 0
+          fi
+          REGISTRY="${{ inputs.registry_url }}"
+          REGISTRY_HOST="${REGISTRY#https://}"
+          REGISTRY_HOST="${REGISTRY_HOST%/}"
+          {
+            echo "registry=${REGISTRY}"
+            echo "always-auth=true"
+            echo "//${REGISTRY_HOST}/:_authToken=${NPM_AUTH_TOKEN}"
+            echo "strict-peer-dependencies=false"
+            echo "auto-install-peers=true"
+          } >> "$HOME/.npmrc"
+          echo "Configured registry=${REGISTRY}"
+
+      - name: Install dependencies
+        env:
+          INSTALL_CMD: ${{ steps.cfg.outputs.install_command }}
+        run: bash -lc "$INSTALL_CMD"
+
+      - name: Run quality checks
+        env:
+          QUALITY_CMD: ${{ inputs.quality_command }}
+        run: bash -lc "$QUALITY_CMD"
