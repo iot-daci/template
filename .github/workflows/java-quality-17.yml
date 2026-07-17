@@ -50,8 +50,8 @@ jobs:
               label="$(printf '%s' "$GITHUB_SHA" | cut -c1-7)"
             fi
           fi
-          # artifact 名不允许 /
-          label="${label//\//-}"
+          # artifact 名不允许 /（POSIX：容器默认 sh 无 bash 的 ${var//pat/repl}）
+          label="$(printf '%s' "$label" | tr '/' '-')"
           echo "value=$label" >>"$GITHUB_OUTPUT"
 
       - name: Get cache directory path
