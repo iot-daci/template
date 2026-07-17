@@ -8,7 +8,7 @@ GitHub Actions 可复用 workflow 模板库。业务仓库通过 `workflow_call`
 |------|------|
 | `java.yml` / `java-17.yml` | Java 应用构建与 Docker 镜像 |
 | `java-lib.yml` / `java-lib-17.yml` | Java 库构建与部署 |
-| `java-quality-17.yml` | Java 17 质量检查（可复用）：**并行**跑单元测试+JaCoCo、SpotBugs+FindSecBugs、OWASP Dependency-Check。业务仓用 `schedule`（每日 main/dev）+ `workflow_dispatch` 调用，传入 `ref` |
+| `java-quality-17.yml` | Java 17 质量检查（可复用）：**并行**跑单元测试+JaCoCo、SpotBugs+FindSecBugs。业务仓用 `schedule`（每日 main/dev）+ `workflow_dispatch` 调用，传入 `ref` |
 | `docker.yml` | Docker 镜像构建 |
 | `js.yml` | 前端构建 |
 | `npm-publish.yml` | npm 包发布（pnpm monorepo，阿里云私服） |
