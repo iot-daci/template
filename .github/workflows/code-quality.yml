@@ -34,9 +34,10 @@ on:
         required: false
         default: ""
       node_version:
+        description: frontend/docs 专用 — Node 版本（setup-node）；portal-next engines 支持 22.18 / 24
         type: string
         required: false
-        default: "20"
+        default: "24"
       package_manager:
         description: frontend/docs 专用 — npm | pnpm | none；留空则 frontend/portal→pnpm、docs→npm
         type: string
