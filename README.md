@@ -32,6 +32,8 @@ GitHub Actions 可复用 workflow 模板库。业务仓库通过 `workflow_call`
 2. 优先提取 PR 正文中的 `## Changelog` 段落；否则用标题 + 正文摘要 + commits
 3. 将条目 **prepend** 到仓库根目录 `changelog.md` 并 push
 
+并发：同一仓库 `main` 上写 changelog **串行**（`concurrency` + `cancel-in-progress: false`）；每次 push 前 `fetch` 最新 tip 再 prepend，失败最多重试 5 次（避免多服务同时构建互相抢文件）。
+
 打 Docker 镜像的模板（`java` / `java-17` / `js` / `docker` / `cpp`）**必须**传入 `GH_TOKEN`；main 构建成功后会写 `changelog.md`，缺 token 则失败：
 
 ```yaml

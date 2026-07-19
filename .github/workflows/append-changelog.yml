@@ -31,6 +31,11 @@ on:
         description: 用于 push changelog.md（必填）
         required: true
 
+# 同一仓库同一分支上串行写 changelog，避免多服务同时构建互相抢 push
+concurrency:
+  group: append-changelog-${{ github.repository }}-${{ inputs.target_branch }}-${{ inputs.changelog_path }}
+  cancel-in-progress: false
+
 jobs:
   append:
     name: Append changelog
@@ -163,14 +168,6 @@ jobs:
             echo ""
           } >"$ENTRY_FILE"
 
-          mkdir -p "$(dirname "$CHANGELOG_PATH")"
-          if [ -f "$CHANGELOG_PATH" ]; then
-            cat "$ENTRY_FILE" "$CHANGELOG_PATH" >"${CHANGELOG_PATH}.tmp"
-            mv "${CHANGELOG_PATH}.tmp" "$CHANGELOG_PATH"
-          else
-            cp "$ENTRY_FILE" "$CHANGELOG_PATH"
-          fi
-
           {
             echo "## Changelog"
             echo ""
@@ -183,16 +180,45 @@ jobs:
             fi
           } >>"$GITHUB_STEP_SUMMARY"
 
-          git add "$CHANGELOG_PATH"
-          if git diff --cached --quiet; then
-            echo "No changelog changes to commit"
-            exit 0
-          fi
+          # 每次基于最新 remote 重新 prepend，避免并发 push / rebase 冲突
+          MAX_ATTEMPTS=5
+          for attempt in $(seq 1 "$MAX_ATTEMPTS"); do
+            echo "Changelog push attempt ${attempt}/${MAX_ATTEMPTS}"
 
-          git commit -m "chore(changelog): ${SERVICE_NAME}@${IMAGE_VERSION}"
+            git fetch origin "${TARGET_BRANCH}"
+            git reset --hard "origin/${TARGET_BRANCH}"
+            git clean -fd
 
-          if ! git push origin "HEAD:${TARGET_BRANCH}"; then
-            echo "Push failed, rebase and retry once"
-            git pull --rebase origin "${TARGET_BRANCH}"
-            git push origin "HEAD:${TARGET_BRANCH}"
-          fi
+            ENTRY_HEADER="## ${DATE_UTC} — ${SERVICE_NAME} @ ${IMAGE_VERSION}"
+            mkdir -p "$(dirname "$CHANGELOG_PATH")"
+            if [ -f "$CHANGELOG_PATH" ] && grep -Fqx "$ENTRY_HEADER" "$CHANGELOG_PATH"; then
+              echo "Entry already present (${ENTRY_HEADER}); skipping"
+              exit 0
+            fi
+
+            if [ -f "$CHANGELOG_PATH" ]; then
+              cat "$ENTRY_FILE" "$CHANGELOG_PATH" >"${CHANGELOG_PATH}.tmp"
+              mv "${CHANGELOG_PATH}.tmp" "$CHANGELOG_PATH"
+            else
+              cp "$ENTRY_FILE" "$CHANGELOG_PATH"
+            fi
+
+            git add "$CHANGELOG_PATH"
+            if git diff --cached --quiet; then
+              echo "No changelog changes to commit"
+              exit 0
+            fi
+
+            git commit -m "chore(changelog): ${SERVICE_NAME}@${IMAGE_VERSION}"
+
+            if git push origin "HEAD:${TARGET_BRANCH}"; then
+              echo "Changelog pushed successfully"
+              exit 0
+            fi
+
+            echo "::warning::Push rejected (likely concurrent changelog update); retrying from latest ${TARGET_BRANCH}"
+            sleep $((attempt * 2))
+          done
+
+          echo "::error::Failed to push changelog after ${MAX_ATTEMPTS} attempts"
+          exit 1
