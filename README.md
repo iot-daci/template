@@ -46,7 +46,9 @@ jobs:
       GH_TOKEN: ${{ secrets.GH_TOKEN }}
 ```
 
-PR 建议使用业务仓 [`.github/pull_request_template.md`](examples/pull_request_template.md)（可复制 [examples/pull_request_template.md](examples/pull_request_template.md)），其中必须保留 `## Changelog` 段落供 CI 提取。
+PR 使用业务仓 `.github/pull_request_template.md`（示例：[examples/pull_request_template.md](examples/pull_request_template.md)），必须保留非空 `## Changelog`。
+
+硬约束：业务仓接入 [examples/require-pr-changelog-caller.yml](examples/require-pr-changelog-caller.yml)，Ruleset 再勾 **`PR Changelog`**（与 `Code Quality Gate` 并列）。缺段落、空内容或仍是模板占位 `-` 时检查失败。
 
 ## Code Quality Gate（Java）
 
