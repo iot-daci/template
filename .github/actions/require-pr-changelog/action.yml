@@ -1,0 +1,60 @@
+name: Require PR Changelog
+description: Fail if PR body lacks a non-empty ## Changelog section
+
+runs:
+  using: composite
+  steps:
+    - name: Require non-empty ## Changelog
+      shell: bash
+      env:
+        BODY: ${{ github.event.pull_request.body }}
+      run: |
+        set -euo pipefail
+        python3 <<'PY'
+        import os
+        import re
+        import sys
+
+        body = os.environ.get("BODY") or ""
+        if not body.strip():
+            print("::error::PR body is empty. Add a ## Changelog section (see .github/pull_request_template.md).")
+            sys.exit(1)
+
+        if not re.search(r"(?im)^##\s+changelog\s*$", body):
+            print("::error::Missing '## Changelog' heading in PR description.")
+            print("CI appends this section to changelog.md after merge to main.")
+            sys.exit(1)
+
+        lines = body.splitlines()
+        collecting = False
+        section = []
+        for line in lines:
+            if re.match(r"(?i)^##\s+changelog\s*$", line):
+                collecting = True
+                continue
+            if collecting and re.match(r"^##\s+", line):
+                break
+            if collecting:
+                section.append(line)
+
+        text = "\n".join(section)
+        text = re.sub(r"<!--.*?-->", "", text, flags=re.S)
+        clean = "\n".join(
+            ln.strip() for ln in text.splitlines() if ln.strip()
+        ).strip()
+
+        if not clean:
+            print("::error::## Changelog section is empty. Write release notes (or '无对外变更' / internal only).")
+            sys.exit(1)
+
+        if clean in {"-", "- -", "-\n-"} or re.fullmatch(r"-\s*", clean):
+            print("::error::## Changelog still has the template placeholder '-'. Replace it with real notes.")
+            sys.exit(1)
+
+        print("OK: ## Changelog present")
+        print("\n".join(clean.splitlines()[:20]))
+        summary = os.environ.get("GITHUB_STEP_SUMMARY")
+        if summary:
+            with open(summary, "a", encoding="utf-8") as fh:
+                fh.write("## PR Changelog check\n\nFound non-empty `## Changelog` section.\n")
+        PY

@@ -1,7 +1,7 @@
 # 复制到业务仓 .github/workflows/require-pr-changelog.yml
-# 分支保护 / Ruleset 勾「PR Changelog」
+# Ruleset 只勾「PR Changelog」
 
-name: Require PR Changelog
+name: PR Changelog
 
 on:
   pull_request:
@@ -10,9 +10,12 @@ on:
       - main
 
 concurrency:
-  group: require-pr-changelog-${{ github.event.pull_request.number || github.ref }}
+  group: pr-changelog-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 jobs:
   check:
-    uses: iot-daci/template/.github/workflows/require-pr-changelog.yml@main
+    name: PR Changelog
+    runs-on: ubuntu-latest
+    steps:
+      - uses: iot-daci/template/.github/actions/require-pr-changelog@main

@@ -10,7 +10,7 @@ GitHub Actions 可复用 workflow 模板库。业务仓库通过 `workflow_call`
 | `java-lib.yml` / `java-lib-17.yml` | Java 库构建与部署 |
 | `js.yml` | 前端构建与 Docker 镜像；**main 构建成功后**追加 `changelog.md` |
 | `append-changelog.yml` | 构建后写 changelog（由 java/js/docker 等调用）：查关联已合并 PR → prepend → push |
-| `require-pr-changelog.yml` | PR 必须含非空 `## Changelog`（Ruleset 勾 **PR Changelog**） |
+| `actions/require-pr-changelog` | PR 必须含非空 `## Changelog`；业务仓本地 job 调用，Ruleset 勾 **`PR Changelog`** |
 | **`code-quality.yml`** | **代码质量检查**（可复用）：caller 传 `kind`（当前仅 `server`）；Java 并行跑单测+JaCoCo、SpotBugs |
 | `docker.yml` | Docker 镜像构建；**main 构建成功后**追加 `changelog.md` |
 | `npm-publish.yml` | npm 包发布（pnpm monorepo，阿里云私服） |
@@ -48,7 +48,7 @@ jobs:
 
 PR 使用业务仓 `.github/pull_request_template.md`（示例：[examples/pull_request_template.md](examples/pull_request_template.md)），必须保留非空 `## Changelog`。
 
-硬约束：业务仓接入 [examples/require-pr-changelog-caller.yml](examples/require-pr-changelog-caller.yml)，Ruleset 再勾 **`PR Changelog`**（与 `Code Quality Gate` 并列）。缺段落、空内容或仍是模板占位 `-` 时检查失败。
+硬约束：业务仓接入 [examples/require-pr-changelog-caller.yml](examples/require-pr-changelog-caller.yml)（本地 job + composite action，避免嵌套长名），Ruleset 勾 **`PR Changelog`**（与 `Code Quality Gate` 并列）。缺段落、空内容或仍是模板占位 `-` 时检查失败。
 
 ## Code Quality Gate（Java）
 
