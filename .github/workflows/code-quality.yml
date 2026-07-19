@@ -63,7 +63,8 @@ jobs:
       volumes:
         - /root/.m2:/root/.m2
     steps:
-      - uses: ./.github/actions/java-unit-test
+      # 必须写 owner/repo@ref：caller 仓没有这些 action，相对路径会落到 vcard/vpay 工作区
+      - uses: iot-daci/template/.github/actions/java-unit-test@main
         with:
           workdir: ${{ inputs.workdir }}
           modules: ${{ inputs.modules }}
@@ -80,7 +81,7 @@ jobs:
       volumes:
         - /root/.m2:/root/.m2
     steps:
-      - uses: ./.github/actions/java-spotbugs
+      - uses: iot-daci/template/.github/actions/java-spotbugs@main
         with:
           workdir: ${{ inputs.workdir }}
           modules: ${{ inputs.modules }}
