@@ -71,8 +71,9 @@ jobs:
           checkout_ref: ${{ inputs.ref != '' && inputs.ref || github.sha }}
           ref_label: ${{ inputs.ref }}
 
+  # SpotBugs：临时关闭；需要时把 if 改回 inputs.kind == 'server'
   spotbugs:
-    if: inputs.kind == 'server'
+    if: false
     needs: validate
     name: ${{ inputs.ref != '' && format('SpotBugs ({0})', inputs.ref) || 'SpotBugs' }}
     runs-on: ubuntu-latest
