@@ -1,0 +1,141 @@
+name: Java unit tests + JaCoCo
+description: Checkout, Maven test with JaCoCo, upload reports and write summary
+
+inputs:
+  workdir:
+    description: Java project root (contains pom.xml)
+    required: false
+    default: "."
+  modules:
+    description: Extra Maven args, e.g. -pl xxx -am
+    required: false
+    default: ""
+  checkout_ref:
+    description: Git ref/SHA to checkout
+    required: true
+  ref_label:
+    description: Optional label for artifact names (branch/tag); empty → derive from GITHUB_REF_NAME/SHA
+    required: false
+    default: ""
+
+runs:
+  using: composite
+  steps:
+    - name: Checkout source
+      uses: actions/checkout@v4
+      with:
+        ref: ${{ inputs.checkout_ref }}
+
+    - name: Resolve artifact label
+      id: label
+      shell: bash
+      run: |
+        label="${{ inputs.ref_label }}"
+        if [ -z "$label" ]; then
+          label="${GITHUB_REF_NAME:-}"
+          if [ -z "$label" ]; then
+            label="$(printf '%s' "$GITHUB_SHA" | cut -c1-7)"
+          fi
+        fi
+        label="$(printf '%s' "$label" | tr '/' '-')"
+        echo "value=$label" >>"$GITHUB_OUTPUT"
+
+    - name: Use Maven cache
+      uses: actions/cache@v4
+      with:
+        path: /root/.m2
+        key: ${{ runner.os }}-m2-${{ github.job }}-${{ hashFiles('**/pom.xml') }}-${{ github.run_id }}
+        restore-keys: |
+          ${{ runner.os }}-m2-
+          ${{ runner.os }}-m2
+
+    - name: Init builder env
+      shell: bash
+      run: init_env.sh
+
+    - name: Run unit tests with JaCoCo
+      shell: bash
+      env:
+        WORKDIR: ${{ inputs.workdir }}
+        MODULES: ${{ inputs.modules }}
+      run: cd "$WORKDIR" && mvn -B clean test $MODULES
+
+    - name: Upload JaCoCo reports
+      if: always() && !cancelled()
+      uses: actions/upload-artifact@v4
+      with:
+        name: jacoco-coverage-${{ steps.label.outputs.value }}-${{ github.run_id }}
+        path: |
+          ${{ inputs.workdir }}/**/target/site/jacoco/**
+          ${{ inputs.workdir }}/**/target/jacoco.exec
+        if-no-files-found: warn
+        retention-days: 10
+
+    - name: JaCoCo coverage summary
+      if: always() && !cancelled()
+      shell: bash
+      working-directory: ${{ inputs.workdir }}
+      env:
+        ARTIFACT_LABEL: ${{ steps.label.outputs.value }}
+      run: |
+        python3 <<'PY'
+        import csv
+        import os
+        from pathlib import Path
+
+        nl = chr(10)
+        summary = Path(os.environ["GITHUB_STEP_SUMMARY"])
+        run_id = os.environ.get("GITHUB_RUN_ID", "")
+        label = os.environ.get("ARTIFACT_LABEL", "")
+        artifact = "jacoco-coverage-%s-%s" % (label, run_id) if label else ("jacoco-coverage-%s" % run_id)
+        lines = [
+            "## JaCoCo Coverage",
+            "",
+            "汇总报告见 Artifact `%s`（完整 `site/jacoco/**` HTML 站点 + `jacoco.exec`）。" % artifact,
+            "",
+        ]
+        csv_files = sorted(Path(".").glob("**/target/site/jacoco/jacoco.csv"))
+        if not csv_files:
+            lines.append("_未找到 jacoco.csv（可能无测试模块或插件未生效）_")
+        else:
+            lines.extend([
+                "| Module | Instruction | Branch | Line |",
+                "| --- | ---: | ---: | ---: |",
+            ])
+            total = [0, 0, 0, 0, 0, 0]
+
+            def pct(covered, missed):
+                denom = covered + missed
+                return "n/a" if denom == 0 else ("%.1f%%" % (100.0 * covered / denom))
+
+            for csv_path in csv_files:
+                parts = csv_path.parts
+                try:
+                    idx = parts.index("target")
+                    module = parts[idx - 1] if idx > 0 else csv_path.parent.parent.parent.name
+                except ValueError:
+                    module = str(csv_path)
+                i_m = i_c = b_m = b_c = l_m = l_c = 0
+                with csv_path.open(newline="", encoding="utf-8") as fh:
+                    for row in csv.DictReader(fh):
+                        i_m += int(row.get("INSTRUCTION_MISSED") or 0)
+                        i_c += int(row.get("INSTRUCTION_COVERED") or 0)
+                        b_m += int(row.get("BRANCH_MISSED") or 0)
+                        b_c += int(row.get("BRANCH_COVERED") or 0)
+                        l_m += int(row.get("LINE_MISSED") or 0)
+                        l_c += int(row.get("LINE_COVERED") or 0)
+                lines.append("| `%s` | %s | %s | %s |" % (module, pct(i_c, i_m), pct(b_c, b_m), pct(l_c, l_m)))
+                total[0] += i_m
+                total[1] += i_c
+                total[2] += b_m
+                total[3] += b_c
+                total[4] += l_m
+                total[5] += l_c
+
+            lines.append(
+                "| **TOTAL** | **%s** | **%s** | **%s** |"
+                % (pct(total[1], total[0]), pct(total[3], total[2]), pct(total[5], total[4]))
+            )
+        with summary.open("a", encoding="utf-8") as out:
+            out.write(nl.join(lines) + nl)
+        PY

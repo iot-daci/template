@@ -11,10 +11,12 @@ GitHub Actions 可复用 workflow 模板库。业务仓库通过 `workflow_call`
 | `js.yml` | 前端构建与 Docker 镜像；**main 构建成功后**追加 `changelog.md` |
 | `append-changelog.yml` | 构建后写 changelog（由 java/js/docker 等调用）：查关联已合并 PR → prepend → push |
 | `actions/require-pr-changelog` | PR 必须含非空 `## Changelog`；业务仓本地 job 调用，Ruleset 勾 **`PR Changelog`** |
-| **`code-quality.yml`** | **代码质量检查**（可复用）：caller 传 `kind`（当前仅 `server`）；Java 并行跑单测+JaCoCo、SpotBugs |
+| **`code-quality.yml`** | **代码质量检查**（可复用）：`kind=server` 时并行调 `actions/java-unit-test` + `actions/java-spotbugs` |
+| `actions/java-unit-test` | Java 单测 + JaCoCo（供 code-quality 等调用） |
+| `actions/java-spotbugs` | SpotBugs + FindSecBugs（供 code-quality 等调用） |
 | `docker.yml` | Docker 镜像构建；**main 构建成功后**追加 `changelog.md` |
 | `npm-publish.yml` | npm 包发布（pnpm monorepo，阿里云私服） |
-| `cpp.yml` | C++ 构建 |
+| `cpp.yml` | C++ 构建与 Docker 镜像；**main 构建成功后**追加 `changelog.md` |
 | `artifact-zip.yml` | 产物打包 |
 | `auto-sync-features.yml` | 多 feature 分支合并到 dev（可配置 pattern、重建 dev） |
 | **`anxiaolong-scan.yml`** | **安小龙 AI 代码审计（打包源码 → 上传 → 轮询 → 下载结果 artifact）** |
@@ -24,13 +26,13 @@ GitHub Actions 可复用 workflow 模板库。业务仓库通过 `workflow_call`
 
 ## Build 后 Changelog（main）
 
-`java.yml` / `java-17.yml` / `js.yml` / `docker.yml` 在 **build 成功且当前分支为 `main`** 时，会调用 `append-changelog.yml`：
+`java.yml` / `java-17.yml` / `js.yml` / `docker.yml` / `cpp.yml` 在 **build 成功且当前分支为 `main`** 时，会调用 `append-changelog.yml`：
 
 1. 用 merge commit / SHA 查找关联已合并 PR
 2. 优先提取 PR 正文中的 `## Changelog` 段落；否则用标题 + 正文摘要 + commits
 3. 将条目 **prepend** 到仓库根目录 `changelog.md` 并 push
 
-业务仓 caller 需传入 `GH_TOKEN`（未配置则跳过写回，不影响镜像构建）：
+打 Docker 镜像的模板（`java` / `java-17` / `js` / `docker` / `cpp`）**必须**传入 `GH_TOKEN`；main 构建成功后会写 `changelog.md`，缺 token 则失败：
 
 ```yaml
 jobs:

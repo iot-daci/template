@@ -20,8 +20,8 @@ on:
       DOCKER_PASSWORD:
         required: true
       GH_TOKEN:
-        description: 写回 changelog.md（仅 main）；未配置则跳过
-        required: false
+        description: 写回 changelog.md（main 构建成功后必填）
+        required: true
 
 jobs:
   build:

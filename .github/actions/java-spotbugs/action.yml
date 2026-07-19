@@ -1,0 +1,177 @@
+name: Java SpotBugs + FindSecBugs
+description: Checkout, Maven SpotBugs, upload reports and write summary
+
+inputs:
+  workdir:
+    description: Java project root (contains pom.xml)
+    required: false
+    default: "."
+  modules:
+    description: Extra Maven args, e.g. -pl xxx -am
+    required: false
+    default: ""
+  checkout_ref:
+    description: Git ref/SHA to checkout
+    required: true
+  ref_label:
+    description: Optional label for artifact names (branch/tag); empty → derive from GITHUB_REF_NAME/SHA
+    required: false
+    default: ""
+
+runs:
+  using: composite
+  steps:
+    - name: Checkout source
+      uses: actions/checkout@v4
+      with:
+        ref: ${{ inputs.checkout_ref }}
+
+    - name: Resolve artifact label
+      id: label
+      shell: bash
+      run: |
+        label="${{ inputs.ref_label }}"
+        if [ -z "$label" ]; then
+          label="${GITHUB_REF_NAME:-}"
+          if [ -z "$label" ]; then
+            label="$(printf '%s' "$GITHUB_SHA" | cut -c1-7)"
+          fi
+        fi
+        label="$(printf '%s' "$label" | tr '/' '-')"
+        echo "value=$label" >>"$GITHUB_OUTPUT"
+
+    - name: Use Maven cache
+      uses: actions/cache@v4
+      with:
+        path: /root/.m2
+        key: ${{ runner.os }}-m2-${{ github.job }}-${{ hashFiles('**/pom.xml') }}-${{ github.run_id }}
+        restore-keys: |
+          ${{ runner.os }}-m2-
+          ${{ runner.os }}-m2
+
+    - name: Init builder env
+      shell: bash
+      run: init_env.sh
+
+    - name: SpotBugs + FindSecBugs
+      shell: bash
+      env:
+        WORKDIR: ${{ inputs.workdir }}
+        MODULES: ${{ inputs.modules }}
+      run: |
+        cd "$WORKDIR"
+        mvn -B -DskipTests compile spotbugs:spotbugs $MODULES
+
+    - name: Upload SpotBugs reports
+      if: always() && !cancelled()
+      uses: actions/upload-artifact@v4
+      with:
+        name: spotbugs-${{ steps.label.outputs.value }}-${{ github.run_id }}
+        path: |
+          ${{ inputs.workdir }}/**/target/spotbugsXml.xml
+          ${{ inputs.workdir }}/**/target/spotbugs.xml
+          ${{ inputs.workdir }}/**/target/site/spotbugs.html
+          ${{ inputs.workdir }}/**/target/site/spotbugs/**
+          ${{ inputs.workdir }}/**/target/spotbugs/**
+        if-no-files-found: warn
+        retention-days: 10
+
+    - name: SpotBugs summary
+      if: always() && !cancelled()
+      shell: bash
+      working-directory: ${{ inputs.workdir }}
+      env:
+        ARTIFACT_LABEL: ${{ steps.label.outputs.value }}
+      run: |
+        python3 <<'PY'
+        import os
+        import xml.etree.ElementTree as ET
+        from collections import Counter
+        from pathlib import Path
+
+        nl = chr(10)
+        summary = Path(os.environ["GITHUB_STEP_SUMMARY"])
+        run_id = os.environ.get("GITHUB_RUN_ID", "")
+        label = os.environ.get("ARTIFACT_LABEL", "")
+        artifact = "spotbugs-%s-%s" % (label, run_id) if label else ("spotbugs-%s" % run_id)
+        lines = [
+            "## SpotBugs + FindSecBugs",
+            "",
+            (
+                "详情见 Artifact `%s`（完整 SpotBugs XML + HTML 站点）。"
+                "默认 `spotbugs.failOnError=false`（只报告）；可用 `-Dspotbugs.failOnError=true` 门禁。"
+            )
+            % artifact,
+            "",
+        ]
+
+        def module_name(path):
+            parts = path.parts
+            try:
+                idx = parts.index("target")
+                return parts[idx - 1] if idx > 0 else str(path)
+            except ValueError:
+                return path.parent.name
+
+        reports = []
+        for pattern in ("**/target/spotbugsXml.xml", "**/target/spotbugs.xml"):
+            reports.extend(Path(".").glob(pattern))
+        by_mod = {}
+        for p in reports:
+            key = (module_name(p), p.parent)
+            if key not in by_mod or p.name == "spotbugsXml.xml":
+                by_mod[key] = p
+        reports = sorted(by_mod.values(), key=lambda p: str(p))
+
+        if not reports:
+            lines.append("_未找到 SpotBugs XML（可能未配置插件、compile 失败或无 class）_")
+        else:
+            lines.extend([
+                "| Module | Bugs | High | Medium | Low | SECURITY | Top types |",
+                "| --- | ---: | ---: | ---: | ---: | ---: | --- |",
+            ])
+            total = Counter()
+            type_total = Counter()
+            for report in reports:
+                try:
+                    root = ET.parse(report).getroot()
+                except Exception:
+                    continue
+                bugs = list(root.findall("BugInstance"))
+                ranks = Counter()
+                sec = 0
+                types = Counter()
+                for b in bugs:
+                    rank = (b.get("priority") or "").strip()
+                    if rank == "1":
+                        ranks["High"] += 1
+                    elif rank == "2":
+                        ranks["Medium"] += 1
+                    else:
+                        ranks["Low"] += 1
+                    if (b.get("category") or "") == "SECURITY":
+                        sec += 1
+                    types[b.get("type") or "?"] += 1
+                    type_total[b.get("type") or "?"] += 1
+                n = len(bugs)
+                total["n"] += n
+                total["High"] += ranks["High"]
+                total["Medium"] += ranks["Medium"]
+                total["Low"] += ranks["Low"]
+                total["SECURITY"] += sec
+                top = ", ".join("`%s`×%d" % (t, c) for t, c in types.most_common(3)) or "-"
+                lines.append(
+                    "| `%s` | %d | %d | %d | %d | %d | %s |"
+                    % (module_name(report), n, ranks["High"], ranks["Medium"], ranks["Low"], sec, top)
+                )
+            lines.append(
+                "| **TOTAL** | **%d** | **%d** | **%d** | **%d** | **%d** |  |"
+                % (total["n"], total["High"], total["Medium"], total["Low"], total["SECURITY"])
+            )
+            if type_total:
+                lines.extend(["", "### Top bug types", "", "| Type | Count |", "| --- | ---: |"])
+                for t, c in type_total.most_common(20):
+                    lines.append("| `%s` | %d |" % (t, c))
+        with summary.open("a", encoding="utf-8") as out:
+            out.write(nl.join(lines) + nl)
+        PY

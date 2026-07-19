@@ -28,8 +28,8 @@ on:
         default: "main"
     secrets:
       GH_TOKEN:
-        description: 用于 push changelog.md；未配置则跳过
-        required: false
+        description: 用于 push changelog.md（必填）
+        required: true
 
 jobs:
   append:
@@ -37,20 +37,16 @@ jobs:
     runs-on: ubuntu-latest
     if: ${{ github.ref_name == inputs.target_branch }}
     steps:
-      - name: Check GH_TOKEN
-        id: token
+      - name: Require GH_TOKEN
         env:
           GH_TOKEN: ${{ secrets.GH_TOKEN }}
         run: |
           if [ -z "${GH_TOKEN}" ]; then
-            echo "present=false" >>"$GITHUB_OUTPUT"
-            echo "GH_TOKEN not set — skip changelog write-back"
-          else
-            echo "present=true" >>"$GITHUB_OUTPUT"
+            echo "::error::GH_TOKEN is required to write changelog.md after Docker image build on main"
+            exit 1
           fi
 
       - name: Checkout
-        if: steps.token.outputs.present == 'true'
         uses: actions/checkout@v4
         with:
           token: ${{ secrets.GH_TOKEN }}
@@ -58,13 +54,11 @@ jobs:
           ref: ${{ inputs.target_branch }}
 
       - name: Setup git
-        if: steps.token.outputs.present == 'true'
         run: |
           git config user.name "changelog-bot"
           git config user.email "changelog-bot@users.noreply.github.com"
 
       - name: Resolve PR and write changelog
-        if: steps.token.outputs.present == 'true'
         env:
           GH_TOKEN: ${{ secrets.GH_TOKEN }}
           CHANGELOG_PATH: ${{ inputs.changelog_path }}
