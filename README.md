@@ -6,11 +6,13 @@ GitHub Actions 可复用 workflow 模板库。业务仓库通过 `workflow_call`
 
 | 文件 | 说明 |
 |------|------|
-| `java.yml` / `java-17.yml` | Java 应用构建与 Docker 镜像 |
+| `java.yml` / `java-17.yml` | Java 应用构建与 Docker 镜像；**main 构建成功后**追加 `changelog.md` |
 | `java-lib.yml` / `java-lib-17.yml` | Java 库构建与部署 |
+| `js.yml` | 前端构建与 Docker 镜像；**main 构建成功后**追加 `changelog.md` |
+| `append-changelog.yml` | 构建后写 changelog（由 java/js/docker 等调用）：查关联已合并 PR → prepend → push |
+| `require-pr-changelog.yml` | PR 必须含非空 `## Changelog`（Ruleset 勾 **PR Changelog**） |
 | **`code-quality.yml`** | **代码质量检查**（可复用）：caller 传 `kind`（当前仅 `server`）；Java 并行跑单测+JaCoCo、SpotBugs |
-| `docker.yml` | Docker 镜像构建 |
-| `js.yml` | 前端构建 |
+| `docker.yml` | Docker 镜像构建；**main 构建成功后**追加 `changelog.md` |
 | `npm-publish.yml` | npm 包发布（pnpm monorepo，阿里云私服） |
 | `cpp.yml` | C++ 构建 |
 | `artifact-zip.yml` | 产物打包 |
@@ -19,6 +21,32 @@ GitHub Actions 可复用 workflow 模板库。业务仓库通过 `workflow_call`
 | **`claude-pr-review.yml`** | **PR Code Review（Claude，/review 触发，预先生成 diff 文件）** |
 | **`claude-pr-review-auto.yml`** | **PR Code Review（Claude，/review 触发，由 Claude 自行通过 gh 拉取 diff）** |
 | **`claude-feature-doc-review.yml`** | **Feature 设计文档审查（Claude，feature-* push 且 `dev-doc/docs` 变更时自动审核需求/技术方案）** |
+
+## Build 后 Changelog（main）
+
+`java.yml` / `java-17.yml` / `js.yml` / `docker.yml` 在 **build 成功且当前分支为 `main`** 时，会调用 `append-changelog.yml`：
+
+1. 用 merge commit / SHA 查找关联已合并 PR
+2. 优先提取 PR 正文中的 `## Changelog` 段落；否则用标题 + 正文摘要 + commits
+3. 将条目 **prepend** 到仓库根目录 `changelog.md` 并 push
+
+业务仓 caller 需传入 `GH_TOKEN`（未配置则跳过写回，不影响镜像构建）：
+
+```yaml
+jobs:
+  build:
+    uses: iot-daci/template/.github/workflows/java-17.yml@main
+    with:
+      workdir: server
+      docker_context: server/vpay-starter
+      docker_image: com.lz.vpay.server
+    secrets:
+      DOCKER_USER: ${{ secrets.DOCKER_USER }}
+      DOCKER_PASSWORD: ${{ secrets.DOCKER_PASSWORD }}
+      GH_TOKEN: ${{ secrets.GH_TOKEN }}
+```
+
+PR 建议使用业务仓 [`.github/pull_request_template.md`](examples/pull_request_template.md)（可复制 [examples/pull_request_template.md](examples/pull_request_template.md)），其中必须保留 `## Changelog` 段落供 CI 提取。
 
 ## Code Quality Gate（Java）
 

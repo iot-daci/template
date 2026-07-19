@@ -1,0 +1,204 @@
+name: Append changelog after build
+
+on:
+  workflow_call:
+    inputs:
+      changelog_path:
+        description: Changelog 文件路径（相对仓库根）
+        type: string
+        required: false
+        default: "changelog.md"
+      service_name:
+        description: 服务名（通常为 docker_image）
+        type: string
+        required: true
+      image_version:
+        description: 镜像版本（build timestamp）
+        type: string
+        required: true
+      registry_image:
+        description: 完整镜像名（不含 tag），例如 registry.../team-gs/com.lz.vpay.server
+        type: string
+        required: false
+        default: ""
+      target_branch:
+        description: 写入 changelog 的分支（仅 main 有意义）
+        type: string
+        required: false
+        default: "main"
+    secrets:
+      GH_TOKEN:
+        description: 用于 push changelog.md；未配置则跳过
+        required: false
+
+jobs:
+  append:
+    name: Append changelog
+    runs-on: ubuntu-latest
+    if: ${{ github.ref_name == inputs.target_branch }}
+    steps:
+      - name: Check GH_TOKEN
+        id: token
+        env:
+          GH_TOKEN: ${{ secrets.GH_TOKEN }}
+        run: |
+          if [ -z "${GH_TOKEN}" ]; then
+            echo "present=false" >>"$GITHUB_OUTPUT"
+            echo "GH_TOKEN not set — skip changelog write-back"
+          else
+            echo "present=true" >>"$GITHUB_OUTPUT"
+          fi
+
+      - name: Checkout
+        if: steps.token.outputs.present == 'true'
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GH_TOKEN }}
+          fetch-depth: 0
+          ref: ${{ inputs.target_branch }}
+
+      - name: Setup git
+        if: steps.token.outputs.present == 'true'
+        run: |
+          git config user.name "changelog-bot"
+          git config user.email "changelog-bot@users.noreply.github.com"
+
+      - name: Resolve PR and write changelog
+        if: steps.token.outputs.present == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GH_TOKEN }}
+          CHANGELOG_PATH: ${{ inputs.changelog_path }}
+          SERVICE_NAME: ${{ inputs.service_name }}
+          IMAGE_VERSION: ${{ inputs.image_version }}
+          REGISTRY_IMAGE: ${{ inputs.registry_image }}
+          COMMIT_SHA: ${{ github.sha }}
+          REPO: ${{ github.repository }}
+          TARGET_BRANCH: ${{ inputs.target_branch }}
+        run: |
+          set -euo pipefail
+
+          DATE_UTC=$(date -u +'%Y-%m-%d')
+          SOURCE="commit"
+          PR_NUMBER=""
+          PR_TITLE=""
+          PR_BODY=""
+          PR_URL=""
+          COMMITS_BLOCK=""
+
+          PR_JSON=$(gh api "repos/${REPO}/commits/${COMMIT_SHA}/pulls" \
+            -H "Accept: application/vnd.github.groot-preview+json" 2>/dev/null || echo "[]")
+          PR_COUNT=$(printf '%s' "$PR_JSON" | jq 'length')
+          if [ "$PR_COUNT" -gt 0 ]; then
+            PR_NUMBER=$(printf '%s' "$PR_JSON" | jq -r '.[0].number')
+            PR_TITLE=$(printf '%s' "$PR_JSON" | jq -r '.[0].title // ""')
+            PR_BODY=$(printf '%s' "$PR_JSON" | jq -r '.[0].body // ""')
+            PR_URL=$(printf '%s' "$PR_JSON" | jq -r '.[0].html_url // ""')
+            SOURCE="pr"
+          else
+            SEARCH_JSON=$(gh pr list --repo "$REPO" --state merged --search "$COMMIT_SHA" --limit 1 \
+              --json number,title,body,url 2>/dev/null || echo "[]")
+            if [ "$(printf '%s' "$SEARCH_JSON" | jq 'length')" -gt 0 ]; then
+              PR_NUMBER=$(printf '%s' "$SEARCH_JSON" | jq -r '.[0].number')
+              PR_TITLE=$(printf '%s' "$SEARCH_JSON" | jq -r '.[0].title // ""')
+              PR_BODY=$(printf '%s' "$SEARCH_JSON" | jq -r '.[0].body // ""')
+              PR_URL=$(printf '%s' "$SEARCH_JSON" | jq -r '.[0].url // ""')
+              SOURCE="pr"
+            fi
+          fi
+
+          extract_changelog_section() {
+            printf '%s\n' "$1" | awk '
+              BEGIN { ignore=1 }
+              /^##[ \t][Cc]hangelog[ \t]*$/ { ignore=0; next }
+              /^##[ \t]/ && ignore==0 { exit }
+              ignore==0 { print }
+            ' | sed -e 's/[[:space:]]*$//'
+          }
+
+          BODY_SECTION=""
+          if [ -n "$PR_BODY" ]; then
+            BODY_SECTION=$(extract_changelog_section "$PR_BODY" || true)
+          fi
+
+          if [ -n "$BODY_SECTION" ]; then
+            CONTENT="$BODY_SECTION"
+          elif [ "$SOURCE" = "pr" ]; then
+            BODY_TRIM=$(printf '%s\n' "$PR_BODY" | head -c 2000)
+            if [ -n "$PR_NUMBER" ]; then
+              COMMITS_BLOCK=$(gh pr view "$PR_NUMBER" --repo "$REPO" --json commits \
+                --jq '.commits[:15] | map("- \(.oid[0:7]) \(.messageHeadline)") | .[]' 2>/dev/null || true)
+            fi
+            CONTENT=$(printf '%s\n\n%s\n' "$PR_TITLE" "$BODY_TRIM")
+            if [ -n "$COMMITS_BLOCK" ]; then
+              CONTENT=$(printf '%s\n\n### Commits\n\n%s\n' "$CONTENT" "$COMMITS_BLOCK")
+            fi
+          else
+            SUBJECT=$(git log -1 --format='%s' "$COMMIT_SHA" 2>/dev/null || echo "(no subject)")
+            CONTENT=$(printf 'No linked PR found for commit `%s`.\n\n- Commit: %s\n' "$COMMIT_SHA" "$SUBJECT")
+            echo "::warning::No merged PR linked to $COMMIT_SHA; writing commit fallback entry"
+          fi
+
+          if [ -n "$REGISTRY_IMAGE" ]; then
+            IMAGE_LINE="- Image: \`${REGISTRY_IMAGE}:${IMAGE_VERSION}\`"
+          else
+            IMAGE_LINE="- Image tag: \`${IMAGE_VERSION}\`"
+          fi
+
+          if [ -n "$PR_NUMBER" ]; then
+            if [ -n "$PR_URL" ]; then
+              PR_LINE="- PR: [#${PR_NUMBER}](${PR_URL}) ${PR_TITLE}"
+            else
+              PR_LINE="- PR: #${PR_NUMBER} ${PR_TITLE}"
+            fi
+          else
+            PR_LINE="- Commit: \`${COMMIT_SHA}\`"
+          fi
+
+          ENTRY_FILE=$(mktemp)
+          {
+            echo "## ${DATE_UTC} — ${SERVICE_NAME} @ ${IMAGE_VERSION}"
+            echo ""
+            echo "${PR_LINE}"
+            echo "${IMAGE_LINE}"
+            echo ""
+            echo "### Changelog"
+            echo ""
+            printf '%s\n' "$CONTENT"
+            echo ""
+            echo "---"
+            echo ""
+          } >"$ENTRY_FILE"
+
+          mkdir -p "$(dirname "$CHANGELOG_PATH")"
+          if [ -f "$CHANGELOG_PATH" ]; then
+            cat "$ENTRY_FILE" "$CHANGELOG_PATH" >"${CHANGELOG_PATH}.tmp"
+            mv "${CHANGELOG_PATH}.tmp" "$CHANGELOG_PATH"
+          else
+            cp "$ENTRY_FILE" "$CHANGELOG_PATH"
+          fi
+
+          {
+            echo "## Changelog"
+            echo ""
+            echo "- Path: \`$CHANGELOG_PATH\`"
+            echo "- Service: \`$SERVICE_NAME\`"
+            echo "- Version: \`$IMAGE_VERSION\`"
+            echo "- Source: \`$SOURCE\`"
+            if [ -n "$PR_NUMBER" ]; then
+              echo "- PR: #$PR_NUMBER"
+            fi
+          } >>"$GITHUB_STEP_SUMMARY"
+
+          git add "$CHANGELOG_PATH"
+          if git diff --cached --quiet; then
+            echo "No changelog changes to commit"
+            exit 0
+          fi
+
+          git commit -m "chore(changelog): ${SERVICE_NAME}@${IMAGE_VERSION}"
+
+          if ! git push origin "HEAD:${TARGET_BRANCH}"; then
+            echo "Push failed, rebase and retry once"
+            git pull --rebase origin "${TARGET_BRANCH}"
+            git push origin "HEAD:${TARGET_BRANCH}"
+          fi

@@ -23,6 +23,9 @@ on:
         required: true
       DOCKER_PASSWORD:
         required: true
+      GH_TOKEN:
+        description: 写回 changelog.md（仅 main）；未配置则跳过
+        required: false
 
 jobs:
   build:
@@ -60,6 +63,7 @@ jobs:
           TIMESTAMP=$(date +'%Y%m%d%H%M%S')
           echo "Build timestamp: $TIMESTAMP"
           echo "TIMESTAMP=$TIMESTAMP" >> $GITHUB_ENV
+          echo "value=$TIMESTAMP" >> "$GITHUB_OUTPUT"
 
       - name: Docker meta
         id: meta
@@ -73,7 +77,7 @@ jobs:
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
             type=sha
-            type=raw,value=${{ env.TIMESTAMP }}
+            type=raw,value=${{ steps.timestamp.outputs.value }}
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
@@ -139,3 +143,18 @@ jobs:
             echo "" >> $GITHUB_STEP_SUMMARY
             echo "📦 Download artifacts from the Actions tab." >> $GITHUB_STEP_SUMMARY
           fi
+
+    outputs:
+      version: ${{ steps.timestamp.outputs.value }}
+
+  changelog:
+    name: Changelog
+    needs: build
+    if: ${{ success() && github.ref_name == 'main' }}
+    uses: ./.github/workflows/append-changelog.yml
+    with:
+      service_name: ${{ inputs.docker_image }}
+      image_version: ${{ needs.build.outputs.version }}
+      registry_image: registry.cn-hangzhou.aliyuncs.com/team-gs/${{ inputs.docker_image }}
+    secrets:
+      GH_TOKEN: ${{ secrets.GH_TOKEN }}
