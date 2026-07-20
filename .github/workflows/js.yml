@@ -14,6 +14,11 @@ on:
       docker_image:
         type: string
         required: true
+      # Optional env for product build.sh (e.g. openapi-doc white-label BRAND=dajinniao)
+      brand:
+        type: string
+        required: false
+        default: ""
     secrets:
       DOCKER_USER:
         required: true
@@ -138,6 +143,8 @@ jobs:
 
       # 编译包
       - name: Build package
+        env:
+          BRAND: ${{ inputs.brand }}
         run: cd ${{ inputs.workdir }} && sh build.sh
 
       # 编译docker镜像
@@ -146,6 +153,8 @@ jobs:
         with:
           context: ${{ inputs.docker_context }}
           platforms: linux/amd64
+          build-args: |
+            BRAND=${{ inputs.brand }}
           cache-from: type=gha,scope=${{ inputs.docker_image }}
           cache-to: type=gha,mode=max,scope=${{ inputs.docker_image }}
           push: ${{ github.event_name != 'pull_request' }}
