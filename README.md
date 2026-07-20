@@ -29,8 +29,27 @@ GitHub Actions 可复用 workflow 模板库。业务仓库通过 `workflow_call`
 `java.yml` / `java-17.yml` / `js.yml` / `docker.yml` / `cpp.yml` 在 **build 成功且当前分支为 `main`** 时，会调用 `append-changelog.yml`：
 
 1. 用 merge commit / SHA 查找关联已合并 PR
-2. 优先提取 PR 正文中的 `## Changelog` 段落；否则用标题 + 正文摘要 + commits
-3. 将条目 **prepend** 到仓库根目录 `changelog.md` 并 push
+2. **只提取** PR 正文中的 `## Changelog` 段落（去掉 HTML 注释；不回退成整份 PR 模板）
+3. 写成简洁条目 prepend 到仓库根目录 `changelog.md` 并 push
+
+条目示例：
+
+```markdown
+## 2026-07-20 · `com.lz.vcard.admin-portal` · `20260720102407`
+
+**PR** [#201 · openapidoc no brand](https://github.com/org/repo/pull/201)
+
+- openapi文档白牌
+
+<details>
+<summary>Image</summary>
+
+`registry.cn-hangzhou.aliyuncs.com/team-gs/com.lz.vcard.admin-portal:20260720102407`
+
+</details>
+
+---
+```
 
 并发：同一仓库 `main` 上写 changelog **串行**（`concurrency` + `cancel-in-progress: false`）；每次 push 前 `fetch` 最新 tip 再 prepend，失败最多重试 5 次（避免多服务同时构建互相抢文件）。
 

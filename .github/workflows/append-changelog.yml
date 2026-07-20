@@ -82,7 +82,6 @@ jobs:
           PR_TITLE=""
           PR_BODY=""
           PR_URL=""
-          COMMITS_BLOCK=""
 
           PR_JSON=$(gh api "repos/${REPO}/commits/${COMMIT_SHA}/pulls" \
             -H "Accept: application/vnd.github.groot-preview+json" 2>/dev/null || echo "[]")
@@ -105,68 +104,144 @@ jobs:
             fi
           fi
 
-          extract_changelog_section() {
-            printf '%s\n' "$1" | awk '
-              BEGIN { ignore=1 }
-              /^##[ \t][Cc]hangelog[ \t]*$/ { ignore=0; next }
-              /^##[ \t]/ && ignore==0 { exit }
-              ignore==0 { print }
-            ' | sed -e 's/[[:space:]]*$//'
-          }
-
-          BODY_SECTION=""
-          if [ -n "$PR_BODY" ]; then
-            BODY_SECTION=$(extract_changelog_section "$PR_BODY" || true)
-          fi
-
-          if [ -n "$BODY_SECTION" ]; then
-            CONTENT="$BODY_SECTION"
-          elif [ "$SOURCE" = "pr" ]; then
-            BODY_TRIM=$(printf '%s\n' "$PR_BODY" | head -c 2000)
-            if [ -n "$PR_NUMBER" ]; then
-              COMMITS_BLOCK=$(gh pr view "$PR_NUMBER" --repo "$REPO" --json commits \
-                --jq '.commits[:15] | map("- \(.oid[0:7]) \(.messageHeadline)") | .[]' 2>/dev/null || true)
-            fi
-            CONTENT=$(printf '%s\n\n%s\n' "$PR_TITLE" "$BODY_TRIM")
-            if [ -n "$COMMITS_BLOCK" ]; then
-              CONTENT=$(printf '%s\n\n### Commits\n\n%s\n' "$CONTENT" "$COMMITS_BLOCK")
-            fi
-          else
-            SUBJECT=$(git log -1 --format='%s' "$COMMIT_SHA" 2>/dev/null || echo "(no subject)")
-            CONTENT=$(printf 'No linked PR found for commit `%s`.\n\n- Commit: %s\n' "$COMMIT_SHA" "$SUBJECT")
-            echo "::warning::No merged PR linked to $COMMIT_SHA; writing commit fallback entry"
-          fi
-
-          if [ -n "$REGISTRY_IMAGE" ]; then
-            IMAGE_LINE="- Image: \`${REGISTRY_IMAGE}:${IMAGE_VERSION}\`"
-          else
-            IMAGE_LINE="- Image tag: \`${IMAGE_VERSION}\`"
-          fi
-
-          if [ -n "$PR_NUMBER" ]; then
-            if [ -n "$PR_URL" ]; then
-              PR_LINE="- PR: [#${PR_NUMBER}](${PR_URL}) ${PR_TITLE}"
-            else
-              PR_LINE="- PR: #${PR_NUMBER} ${PR_TITLE}"
-            fi
-          else
-            PR_LINE="- Commit: \`${COMMIT_SHA}\`"
-          fi
-
           ENTRY_FILE=$(mktemp)
-          {
-            echo "## ${DATE_UTC} — ${SERVICE_NAME} @ ${IMAGE_VERSION}"
-            echo ""
-            echo "${PR_LINE}"
-            echo "${IMAGE_LINE}"
-            echo ""
-            echo "### Changelog"
-            echo ""
-            printf '%s\n' "$CONTENT"
-            echo ""
-            echo "---"
-            echo ""
-          } >"$ENTRY_FILE"
+          export DATE_UTC SOURCE PR_NUMBER PR_TITLE PR_BODY PR_URL ENTRY_FILE
+          python3 <<'PY'
+          import os
+          import re
+          from pathlib import Path
+
+
+          def normalize(text: str) -> str:
+              return text.replace("\r\n", "\n").replace("\r", "\n")
+
+
+          def extract_changelog_section(body: str) -> str:
+              lines = normalize(body).splitlines()
+              collecting = False
+              section: list[str] = []
+              for line in lines:
+                  if re.match(r"(?i)^##\s+changelog\s*$", line.strip()):
+                      collecting = True
+                      continue
+                  if collecting and re.match(r"^##\s+", line.strip()):
+                      break
+                  if collecting:
+                      section.append(line)
+              text = "\n".join(section)
+              text = re.sub(r"<!--.*?-->", "", text, flags=re.S)
+              cleaned_lines: list[str] = []
+              for ln in text.splitlines():
+                  s = ln.strip()
+                  if not s:
+                      if cleaned_lines and cleaned_lines[-1] != "":
+                          cleaned_lines.append("")
+                      continue
+                  # drop leftover template placeholder "-"
+                  if re.fullmatch(r"-\s*", s):
+                      continue
+                  cleaned_lines.append(s)
+              while cleaned_lines and cleaned_lines[-1] == "":
+                  cleaned_lines.pop()
+              return "\n".join(cleaned_lines).strip()
+
+
+          def as_bullets(text: str) -> str:
+              if not text:
+                  return ""
+              out: list[str] = []
+              for ln in text.splitlines():
+                  s = ln.strip()
+                  if not s:
+                      continue
+                  if s.startswith(("- ", "* ", "+ ")):
+                      out.append(f"- {s[2:].strip()}")
+                  elif re.match(r"^\d+\.\s+", s):
+                      out.append(f"- {re.sub(r'^\d+\.\s+', '', s)}")
+                  else:
+                      out.append(f"- {s}")
+              return "\n".join(out)
+
+
+          def tidy_pr_title(title: str) -> str:
+              # "Feature foo" / "Fix: bar" → keep readable without shouting prefixes
+              t = title.strip()
+              t = re.sub(
+                  r"^(feature|fix|hotfix|chore|docs|refactor)\s*[:：\-–—]?\s+",
+                  "",
+                  t,
+                  flags=re.IGNORECASE,
+              ).strip()
+              return t or title.strip()
+
+
+          service = os.environ["SERVICE_NAME"]
+          version = os.environ["IMAGE_VERSION"]
+          date_utc = os.environ["DATE_UTC"]
+          pr_number = os.environ.get("PR_NUMBER") or ""
+          pr_title = (os.environ.get("PR_TITLE") or "").strip()
+          pr_body = os.environ.get("PR_BODY") or ""
+          pr_url = (os.environ.get("PR_URL") or "").strip()
+          registry = (os.environ.get("REGISTRY_IMAGE") or "").strip()
+          commit_sha = os.environ.get("COMMIT_SHA") or ""
+          entry_file = os.environ["ENTRY_FILE"]
+
+          notes = extract_changelog_section(pr_body) if pr_body else ""
+          if not notes:
+              if pr_title:
+                  notes = tidy_pr_title(pr_title)
+                  print("::warning::No usable ## Changelog in PR body; falling back to PR title")
+              elif commit_sha:
+                  notes = f"构建提交 `{commit_sha[:7]}`（未关联 PR）"
+                  print(f"::warning::No merged PR linked to {commit_sha}")
+              else:
+                  notes = "（无变更说明）"
+
+          notes = as_bullets(notes)
+          display_title = tidy_pr_title(pr_title) if pr_title else ""
+
+          # Visual layout (heading includes tag for idempotent prepend):
+          # ## date · service · tag
+          # PR / commit
+          # changes
+          # collapsible image
+          lines: list[str] = [
+              f"## {date_utc} · `{service}` · `{version}`",
+              "",
+          ]
+
+          if pr_number:
+              label = f"#{pr_number}"
+              if display_title:
+                  label = f"#{pr_number} · {display_title}"
+              if pr_url:
+                  lines.append(f"**PR** [{label}]({pr_url})")
+              else:
+                  lines.append(f"**PR** {label}")
+          elif commit_sha:
+              lines.append(f"**Commit** `{commit_sha[:10]}`")
+
+          lines.extend(["", notes, ""])
+
+          if registry:
+              lines.extend(
+                  [
+                      "<details>",
+                      "<summary>Image</summary>",
+                      "",
+                      f"`{registry}:{version}`",
+                      "",
+                      "</details>",
+                      "",
+                  ]
+              )
+
+          lines.extend(["---", ""])
+          entry = "\n".join(lines)
+          Path(entry_file).write_text(entry, encoding="utf-8")
+          print("Wrote changelog entry:")
+          print(entry)
+          PY
 
           {
             echo "## Changelog"
@@ -189,7 +264,7 @@ jobs:
             git reset --hard "origin/${TARGET_BRANCH}"
             git clean -fd
 
-            ENTRY_HEADER="## ${DATE_UTC} — ${SERVICE_NAME} @ ${IMAGE_VERSION}"
+            ENTRY_HEADER="## ${DATE_UTC} · \`${SERVICE_NAME}\` · \`${IMAGE_VERSION}\`"
             mkdir -p "$(dirname "$CHANGELOG_PATH")"
             if [ -f "$CHANGELOG_PATH" ] && grep -Fqx "$ENTRY_HEADER" "$CHANGELOG_PATH"; then
               echo "Entry already present (${ENTRY_HEADER}); skipping"
