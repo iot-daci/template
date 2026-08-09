@@ -23,14 +23,17 @@ GitHub Actions 可复用 workflow 模板库。业务仓库通过 `workflow_call`
 | **`claude-pr-review.yml`** | **PR Code Review（Claude，/review 触发，预先生成 diff 文件）** |
 | **`claude-pr-review-auto.yml`** | **PR Code Review（Claude，/review 触发，由 Claude 自行通过 gh 拉取 diff）** |
 | **`claude-feature-doc-review.yml`** | **Feature 设计文档审查（Claude，feature-* push 且 `dev-doc/docs` 变更时自动审核需求/技术方案）** |
+| **`api-auto-test.yml`** | **Python/pytest API 自动化测试**（可复用）：装依赖 → 注入 `.env`/mTLS 证书 → 跑测 → **Job Summary** + JUnit artifact |
 
 ## Build 后 Changelog（main）
 
-`java.yml` / `java-17.yml` / `js.yml` / `docker.yml` / `cpp.yml` 在 **build 成功且当前分支为 `main`** 时，会调用 `append-changelog.yml`：
+`java.yml` / `java-17.yml` / `js.yml` / `docker.yml` / `cpp.yml` 在 **build 成功、当前分支为 `main`，且 `generate_changelog` 为 true（默认）** 时，会调用 `append-changelog.yml`：
 
 1. 用 merge commit / SHA 查找关联已合并 PR
 2. **只提取** PR 正文中的 `## Changelog` 段落（去掉 HTML 注释；不回退成整份 PR 模板）
 3. 写成简洁条目 prepend 到仓库根目录 `changelog.md` 并 push
+
+不需要写 changelog 时传入 `generate_changelog: false`。
 
 条目示例：
 
@@ -53,7 +56,7 @@ GitHub Actions 可复用 workflow 模板库。业务仓库通过 `workflow_call`
 
 并发：同一仓库 `main` 上写 changelog **串行**（`concurrency` + `cancel-in-progress: false`）；每次 push 前 `fetch` 最新 tip 再 prepend，失败最多重试 5 次（避免多服务同时构建互相抢文件）。
 
-打 Docker 镜像的模板（`java` / `java-17` / `js` / `docker` / `cpp`）**必须**传入 `GH_TOKEN`；main 构建成功后会写 `changelog.md`，缺 token 则失败：
+打 Docker 镜像的模板（`java` / `java-17` / `js` / `docker` / `cpp`）在默认开启 changelog 时**必须**传入 `GH_TOKEN`；main 构建成功后会写 `changelog.md`，缺 token 则失败：
 
 ```yaml
 jobs:
@@ -63,6 +66,7 @@ jobs:
       workdir: server
       docker_context: server/vpay-starter
       docker_image: com.lz.vpay.server
+      # generate_changelog: false  # 可选，默认 true
     secrets:
       DOCKER_USER: ${{ secrets.DOCKER_USER }}
       DOCKER_PASSWORD: ${{ secrets.DOCKER_PASSWORD }}
@@ -321,3 +325,59 @@ jobs:
 - **`Reached maximum number of turns`**：`post_inline_comments: false`、增大 `max_turns`、或拆小 PR
 - **`403` 模型无权限**：在 `with` 中设置你有权限的 `model`
 - **评论无响应**：确认打在 PR 主对话且内容为 `/review` 或 `/review …` 开头
+
+## API Auto Test（pytest）
+
+可复用模板：对外部 sandbox/staging 跑 **HTTP API 自动化**（如 vcard-auto-test）。  
+**定时（每天一次）写在业务仓 caller**（`schedule` 不能挂在 `workflow_call` 上）。跑完写入 **GitHub Job Summary**（用例总数 / 通过 / 失败 / 跳过 + 失败列表），并上传 JUnit artifact。
+
+### 业务仓库接入
+
+1. 配置 Secrets：
+   - **`VCARD_AT_TEST_ENV`**（或自命名）：多行 `KEY=VALUE`，写入工作目录 `.env` 后 `source`（账号、密码、`client_id`/`client_secret`、sign secret、base URL 等）
+   - **`VCARD_OPEN_CLIENT_CERT`** / **`VCARD_OPEN_CLIENT_KEY`**（可选）：OpenAPI mTLS PEM 全文
+2. 复制 [examples/api-auto-test-caller.yml](examples/api-auto-test-caller.yml) 到业务仓 `.github/workflows/api-auto-test.yml`
+3. 按仓库结构调整 `workdir` / `pip_requirements` / `pytest_args`
+
+```yaml
+on:
+  schedule:
+    - cron: "0 1 * * *"   # 每天 UTC 01:00 ≈ 北京 09:00
+  workflow_dispatch:
+
+jobs:
+  api-test:
+    permissions:
+      contents: read
+    uses: iot-daci/template/.github/workflows/api-auto-test.yml@main
+    with:
+      workdir: "."
+      python_version: "3.11"
+      pip_requirements: "requirements.txt"
+      pytest_args: '-m "smoke or critical" -v --tb=short'
+      summary_title: "VCard API Auto Test"
+    secrets:
+      TEST_ENV: ${{ secrets.VCARD_AT_TEST_ENV }}
+      CLIENT_CERT: ${{ secrets.VCARD_OPEN_CLIENT_CERT }}
+      CLIENT_KEY: ${{ secrets.VCARD_OPEN_CLIENT_KEY }}
+```
+
+| input | 默认 | 说明 |
+|-------|------|------|
+| `workdir` | `.` | 测试工程目录 |
+| `python_version` | `3.11` | Python 版本 |
+| `pip_requirements` | `requirements.txt` | 相对 `workdir` |
+| `pytest_args` | `-m "smoke or critical" …` | 不含 `--junitxml`（模板自动加） |
+| `junit_path` | `report/junit.xml` | JUnit 输出 |
+| `artifact_name` | `api-auto-test-report` | artifact 前缀 |
+| `summary_title` | `API Auto Test Summary` | Job Summary 标题 |
+| `fail_on_test_failure` | `true` | 失败是否让 job 红 |
+| `cert_dir` / `cert_filename` / `key_filename` | `certs` / `client.crt` / `client.key` | 证书落盘路径 |
+
+| secret | 必填 | 说明 |
+|--------|------|------|
+| `TEST_ENV` | 否* | 多行 env；*无则需 runner 上已有所需变量 |
+| `CLIENT_CERT` | 否 | mTLS 证书 PEM |
+| `CLIENT_KEY` | 否 | mTLS 私钥 PEM |
+
+跑完后在 Actions 运行页打开 **Summary** 查看结果；详细 XML 在 Artifacts。

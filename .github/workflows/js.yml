@@ -19,6 +19,11 @@ on:
         type: string
         required: false
         default: ""
+      generate_changelog:
+        description: main 构建成功后是否追加 changelog.md
+        type: boolean
+        required: false
+        default: true
     secrets:
       DOCKER_USER:
         required: true
@@ -27,7 +32,7 @@ on:
       NPM_AUTH_TOKEN:
         required: false
       GH_TOKEN:
-        description: 写回 changelog.md（main 构建成功后必填）
+        description: 写回 changelog.md（generate_changelog 为 true 时，main 构建成功后必填）
         required: true
 
 jobs:
@@ -208,7 +213,7 @@ jobs:
   changelog:
     name: Changelog
     needs: build
-    if: ${{ success() && github.ref_name == 'main' }}
+    if: ${{ success() && github.ref_name == 'main' && inputs.generate_changelog }}
     uses: ./.github/workflows/append-changelog.yml
     with:
       service_name: ${{ inputs.docker_image }}

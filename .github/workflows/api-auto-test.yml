@@ -1,0 +1,273 @@
+# 可复用：Python API 自动化测试（pytest）
+# 业务仓通过 workflow_call 引用；定时调度写在 caller（schedule 不能挂在 reusable 上）。
+
+name: API Auto Test
+
+on:
+  workflow_call:
+    inputs:
+      workdir:
+        description: 测试工程相对仓库根目录的路径
+        type: string
+        required: false
+        default: "."
+      python_version:
+        description: Python 版本
+        type: string
+        required: false
+        default: "3.11"
+      pip_requirements:
+        description: requirements 文件（相对 workdir）
+        type: string
+        required: false
+        default: "requirements.txt"
+      pytest_args:
+        description: 传给 pytest 的参数（不含 junit 路径）
+        type: string
+        required: false
+        default: '-m "smoke or critical" -v --tb=short'
+      junit_path:
+        description: JUnit XML 输出路径（相对 workdir）
+        type: string
+        required: false
+        default: "report/junit.xml"
+      artifact_name:
+        description: 上传报告的 artifact 名称
+        type: string
+        required: false
+        default: "api-auto-test-report"
+      cert_dir:
+        description: 写入客户端证书的目录（相对 workdir）
+        type: string
+        required: false
+        default: "certs"
+      cert_filename:
+        description: 客户端证书文件名
+        type: string
+        required: false
+        default: "client.crt"
+      key_filename:
+        description: 客户端私钥文件名
+        type: string
+        required: false
+        default: "client.key"
+      fail_on_test_failure:
+        description: 用例失败时 job 是否失败（false 时仍写 summary / 上传报告）
+        type: boolean
+        required: false
+        default: true
+      summary_title:
+        description: Job Summary 标题
+        type: string
+        required: false
+        default: "API Auto Test Summary"
+    secrets:
+      TEST_ENV:
+        description: |
+          多行 KEY=VALUE（.env 格式），写入 workdir/.env 并 export。
+          放账号、密码、client_id/secret、sign secret、base URL 等。
+        required: false
+      CLIENT_CERT:
+        description: 客户端证书 PEM 全文（OpenAPI mTLS）
+        required: false
+      CLIENT_KEY:
+        description: 客户端私钥 PEM 全文（OpenAPI mTLS）
+        required: false
+
+permissions:
+  contents: read
+
+jobs:
+  api-auto-test:
+    name: Run API Auto Tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ${{ inputs.workdir }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Record start time
+        run: echo "TEST_START_TIME=$(date +%s)" >> "$GITHUB_ENV"
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ inputs.python_version }}
+          cache: pip
+          cache-dependency-path: ${{ inputs.workdir }}/${{ inputs.pip_requirements }}
+
+      - name: Install dependencies
+        run: |
+          set -euo pipefail
+          python -m pip install --upgrade pip
+          if [ -f "${{ inputs.pip_requirements }}" ]; then
+            pip install -r "${{ inputs.pip_requirements }}"
+          else
+            echo "::warning::requirements file not found: ${{ inputs.pip_requirements }}"
+          fi
+
+      - name: Materialize secrets (env + certs)
+        env:
+          TEST_ENV: ${{ secrets.TEST_ENV }}
+          CLIENT_CERT: ${{ secrets.CLIENT_CERT }}
+          CLIENT_KEY: ${{ secrets.CLIENT_KEY }}
+          CERT_DIR: ${{ inputs.cert_dir }}
+          CERT_FILENAME: ${{ inputs.cert_filename }}
+          KEY_FILENAME: ${{ inputs.key_filename }}
+        run: |
+          set -euo pipefail
+          if [ -n "${TEST_ENV:-}" ]; then
+            printf '%s\n' "$TEST_ENV" > .env
+            echo "Wrote .env ($(wc -l < .env | tr -d ' ') lines)"
+          else
+            echo "TEST_ENV secret empty — pytest step will rely on Actions Variables/Secrets already in env"
+          fi
+
+          if [ -n "${CLIENT_CERT:-}" ] || [ -n "${CLIENT_KEY:-}" ]; then
+            mkdir -p "$CERT_DIR"
+            if [ -n "${CLIENT_CERT:-}" ]; then
+              printf '%s\n' "$CLIENT_CERT" > "$CERT_DIR/$CERT_FILENAME"
+              echo "Wrote $CERT_DIR/$CERT_FILENAME"
+              echo "VCARD_OPEN_CERT=${PWD}/${CERT_DIR}/${CERT_FILENAME}" >> "$GITHUB_ENV"
+            fi
+            if [ -n "${CLIENT_KEY:-}" ]; then
+              printf '%s\n' "$CLIENT_KEY" > "$CERT_DIR/$KEY_FILENAME"
+              chmod 600 "$CERT_DIR/$KEY_FILENAME"
+              echo "Wrote $CERT_DIR/$KEY_FILENAME"
+              echo "VCARD_OPEN_KEY=${PWD}/${CERT_DIR}/${KEY_FILENAME}" >> "$GITHUB_ENV"
+            fi
+          fi
+
+      - name: Run pytest
+        id: pytest
+        continue-on-error: ${{ inputs.fail_on_test_failure == false }}
+        run: |
+          set -euo pipefail
+          if [ -f .env ]; then
+            set -a
+            # shellcheck disable=SC1091
+            source .env
+            set +a
+          fi
+          mkdir -p "$(dirname "${{ inputs.junit_path }}")"
+          set +e
+          # shellcheck disable=SC2086
+          pytest ${{ inputs.pytest_args }} \
+            --junitxml="${{ inputs.junit_path }}"
+          code=$?
+          set -e
+          echo "exit_code=$code" >> "$GITHUB_OUTPUT"
+          if [ "${{ inputs.fail_on_test_failure }}" = "true" ] && [ "$code" -ne 0 ]; then
+            exit "$code"
+          fi
+          exit 0
+
+      - name: Write Job Summary
+        if: always()
+        env:
+          JUNIT_PATH: ${{ inputs.junit_path }}
+          SUMMARY_TITLE: ${{ inputs.summary_title }}
+          PYTEST_ARGS: ${{ inputs.pytest_args }}
+          PYTEST_EXIT: ${{ steps.pytest.outputs.exit_code }}
+          JOB_STATUS: ${{ job.status }}
+          FAIL_ON_FAILURE: ${{ inputs.fail_on_test_failure }}
+        run: |
+          set -euo pipefail
+          python <<'PY'
+          import os
+          import xml.etree.ElementTree as ET
+          from datetime import datetime, timezone
+          from pathlib import Path
+
+          title = os.environ.get("SUMMARY_TITLE", "API Auto Test Summary")
+          junit = Path(os.environ.get("JUNIT_PATH", "report/junit.xml"))
+          pytest_args = os.environ.get("PYTEST_ARGS", "")
+          pytest_exit = os.environ.get("PYTEST_EXIT", "")
+          job_status = os.environ.get("JOB_STATUS", "")
+          start = int(os.environ.get("TEST_START_TIME", "0") or "0")
+          end = int(datetime.now(tz=timezone.utc).timestamp())
+          duration = max(0, end - start) if start else 0
+          minutes, seconds = divmod(duration, 60)
+
+          suites = tests = failures = errors = skipped = 0
+          failed_cases = []
+          if junit.is_file():
+              try:
+                  root = ET.parse(junit).getroot()
+                  # root may be testsuite or testsuites
+                  nodes = [root] if root.tag == "testsuite" else list(root.findall("testsuite"))
+                  if root.tag == "testsuites":
+                      suites = len(nodes)
+                  else:
+                      suites = 1
+                  for suite in nodes:
+                      tests += int(suite.attrib.get("tests", 0) or 0)
+                      failures += int(suite.attrib.get("failures", 0) or 0)
+                      errors += int(suite.attrib.get("errors", 0) or 0)
+                      skipped += int(suite.attrib.get("skipped", 0) or 0)
+                      for case in suite.findall("testcase"):
+                          bad = case.find("failure")
+                          if bad is None:
+                              bad = case.find("error")
+                          if bad is not None:
+                              name = case.attrib.get("classname", "") + "::" + case.attrib.get("name", "")
+                              msg = (bad.attrib.get("message") or bad.text or "").strip().splitlines()
+                              failed_cases.append((name, msg[0] if msg else bad.tag))
+              except Exception as exc:  # noqa: BLE001
+                  failed_cases.append(("(junit parse error)", str(exc)))
+          else:
+              failed_cases.append(("(no junit)", f"missing {junit}"))
+
+          passed = max(0, tests - failures - errors - skipped)
+          ok = failures == 0 and errors == 0 and (pytest_exit in ("", "0")) and job_status == "success"
+
+          lines = [
+              f"## {'✅' if ok else '❌'} {title}",
+              "",
+              f"- **Result:** `{'passed' if ok else 'failed'}` (job=`{job_status}`, pytest_exit=`{pytest_exit or 'n/a'}`)",
+              f"- **When:** `{datetime.now(tz=timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')}`",
+              f"- **Commit:** `{os.environ.get('GITHUB_SHA', '')[:12]}`",
+              f"- **Ref:** `{os.environ.get('GITHUB_REF', '')}`",
+              f"- **Duration:** `{minutes}m {seconds}s`",
+              f"- **pytest args:** `{pytest_args}`",
+              "",
+              "| Metric | Count |",
+              "|--------|------:|",
+              f"| Suites | {suites} |",
+              f"| Total | {tests} |",
+              f"| Passed | {passed} |",
+              f"| Failed | {failures} |",
+              f"| Errors | {errors} |",
+              f"| Skipped | {skipped} |",
+              "",
+          ]
+          if failed_cases:
+              lines.append("### Failures")
+              lines.append("")
+              for name, msg in failed_cases[:50]:
+                  safe_msg = msg.replace("|", "\\|")[:200]
+                  lines.append(f"- `{name}` — {safe_msg}")
+              if len(failed_cases) > 50:
+                  lines.append(f"- … and {len(failed_cases) - 50} more")
+              lines.append("")
+          lines.append("📦 JUnit / logs: download artifact from the Actions run page.")
+          lines.append("")
+
+          summary = Path(os.environ["GITHUB_STEP_SUMMARY"])
+          summary.write_text("\n".join(lines) + "\n", encoding="utf-8")
+          print("Wrote job summary")
+          PY
+
+      - name: Upload test report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ inputs.artifact_name }}-${{ github.run_id }}
+          path: |
+            ${{ inputs.workdir }}/${{ inputs.junit_path }}
+            ${{ inputs.workdir }}/report/**
+            ${{ inputs.workdir }}/allure-results/**
+          if-no-files-found: warn
+          retention-days: 14
