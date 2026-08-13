@@ -106,6 +106,9 @@ jobs:
           push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+          # 阿里云 ACR 不支持 buildx 默认 attestation 里的 empty OCI media type
+          provenance: false
+          sbom: false
 
       - name: Summary
         if: always()
