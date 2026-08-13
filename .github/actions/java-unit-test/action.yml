@@ -22,7 +22,7 @@ runs:
   using: composite
   steps:
     - name: Checkout source
-      uses: actions/checkout@v4
+      uses: actions/checkout@v7
       with:
         ref: ${{ inputs.checkout_ref }}
 
@@ -41,7 +41,7 @@ runs:
         echo "value=$label" >>"$GITHUB_OUTPUT"
 
     - name: Use Maven cache
-      uses: actions/cache@v4
+      uses: actions/cache@v6
       with:
         path: /root/.m2
         key: ${{ runner.os }}-m2-${{ github.job }}-${{ hashFiles('**/pom.xml') }}-${{ github.run_id }}
@@ -62,7 +62,7 @@ runs:
 
     - name: Upload JaCoCo reports
       if: always() && !cancelled()
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v7
       with:
         name: jacoco-coverage-${{ steps.label.outputs.value }}-${{ github.run_id }}
         path: |

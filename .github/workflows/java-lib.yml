@@ -28,7 +28,7 @@ jobs:
 
       # 拉取代码
       - name: Checkout source
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       # 记录构建开始时间
       - name: Record build start time
@@ -45,7 +45,7 @@ jobs:
 
       # 挂载缓存
       - name: Use cache
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ${{ steps.mvn-cache-dir-path.outputs.dir }}
           key: ${{ runner.os }}-m2-${{ hashFiles('**/pom.xml') }}

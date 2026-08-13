@@ -43,7 +43,7 @@ jobs:
       NPM_CONFIG_USERCONFIG: /root/.npmrc
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Init npm env
         run: init_env.sh
