@@ -47,6 +47,9 @@ jobs:
       NPM_CONFIG_USERCONFIG: /root/.npmrc
       NPM_AUTH_TOKEN: ${{ secrets.NPM_AUTH_TOKEN }}
       NPM_REGISTRY: https://packages.aliyun.com/637eea4f126bcb821717c7ff/npm/npm-registry/
+      # 与 devenv/js 约定一致：npm cache / pnpm store / npx 都走 /root/.npm，供 actions/cache 命中
+      npm_config_cache: /root/.npm
+      npm_config_store_dir: /root/.npm
     steps:
 
       # 拉取代码
@@ -101,20 +104,16 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
 
-      # 获取缓存路径
-      - name: Get cache directory path
-        id: yarn-cache-dir-path
-        run: echo "dir=$(yarn cache dir)" >>$GITHUB_OUTPUT
-
-      # 挂载缓存
-      - name: Use cache
+      # 缓存 npm / pnpm / yarn 共用目录（build.sh 已切 pnpm，不能再按 yarn cache dir + yarn.lock）
+      - name: Cache JS dependencies
         uses: actions/cache@v6
-        id: yarn-cache # use this to check for `cache-hit` (`steps.yarn-cache.outputs.cache-hit != 'true'`)
+        id: js-cache
         with:
-          path: ${{ steps.yarn-cache-dir-path.outputs.dir }}
-          key: ${{ runner.os }}-yarn-${{ hashFiles('**/yarn.lock') }}
+          path: /root/.npm
+          key: ${{ runner.os }}-js-${{ inputs.docker_image }}-${{ hashFiles('**/pnpm-lock.yaml', '**/package-lock.json', '**/yarn.lock') }}
           restore-keys: |
-            ${{ runner.os }}-yarn-
+            ${{ runner.os }}-js-${{ inputs.docker_image }}-
+            ${{ runner.os }}-js-
 
       # 获取Node版本
       - name: Get Node version
@@ -130,21 +129,26 @@ jobs:
 
       - name: Configure npm registry auth
         run: |
+          mkdir -p /root/.npm
           if [ -z "${NPM_AUTH_TOKEN}" ]; then
-            echo "NPM_AUTH_TOKEN not set, skip npm auth configure"
-            exit 0
+            echo "NPM_AUTH_TOKEN not set, skip registry auth; keep store-dir=/root/.npm"
+          else
+            REGISTRY_HOST="${NPM_REGISTRY#https://}"
+            REGISTRY_HOST="${REGISTRY_HOST%/}"
+            printf '%s\n' \
+              "registry=${NPM_REGISTRY}" \
+              "always-auth=true" \
+              "//${REGISTRY_HOST}/:_authToken=${NPM_AUTH_TOKEN}" \
+              "cache=/root/.npm" \
+              "store-dir=/root/.npm" \
+              "strict-peer-dependencies=false" \
+              "auto-install-peers=true" \
+              > /root/.npmrc
+            echo "Configured npm registry auth"
           fi
-          REGISTRY_HOST="${NPM_REGISTRY#https://}"
-          REGISTRY_HOST="${REGISTRY_HOST%/}"
-          printf '%s\n' \
-            "registry=${NPM_REGISTRY}" \
-            "always-auth=true" \
-            "//${REGISTRY_HOST}/:_authToken=${NPM_AUTH_TOKEN}" \
-            "cache=/root/.npm" \
-            "strict-peer-dependencies=false" \
-            "auto-install-peers=true" \
-            > /root/.npmrc
-          echo "Configured npm registry auth"
+          # init_env.sh 写过 store-dir，但上面覆盖 .npmrc 会丢掉；npx pnpm 必须读到这项才会复用缓存
+          pnpm config set store-dir /root/.npm >/dev/null 2>&1 || true
+          npm config set cache /root/.npm >/dev/null 2>&1 || true
 
       # 编译包
       - name: Build package

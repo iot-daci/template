@@ -60,6 +60,7 @@ jobs:
             "always-auth=true" \
             "//${REGISTRY_HOST}/:_authToken=${NPM_AUTH_TOKEN}" \
             "cache=/root/.npm" \
+            "store-dir=/root/.npm" \
             > /root/.npmrc
           echo "Configured registry=${REGISTRY}"
 
