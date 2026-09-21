@@ -31,7 +31,7 @@ on:
 jobs:
   build:
     name: Build & push
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, x64]
     container:
       image: lzk90s/java-develop-env:maven3-openjdk17
       volumes:

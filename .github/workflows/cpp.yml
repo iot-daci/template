@@ -30,7 +30,7 @@ on:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, x64]
     container:
       image: lzk90s/cpp-develop-env:gcc-14
       volumes:

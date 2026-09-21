@@ -57,7 +57,7 @@ concurrency:
 
 jobs:
   claude-review:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, x64]
     env:
       PR_NUMBER: ${{ inputs.pr_number }}
       CLAUDE_MODEL: ${{ inputs.model }}

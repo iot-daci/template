@@ -37,7 +37,7 @@ on:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, x64]
     container:
       image: lzk90s/js-develop-env:alpine
       volumes:

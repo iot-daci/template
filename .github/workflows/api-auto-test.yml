@@ -80,7 +80,7 @@ permissions:
 jobs:
   api-auto-test:
     name: Run API Auto Tests
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, x64]
     defaults:
       run:
         working-directory: ${{ inputs.workdir }}

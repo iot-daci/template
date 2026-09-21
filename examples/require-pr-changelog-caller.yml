@@ -16,6 +16,6 @@ concurrency:
 jobs:
   check:
     name: PR Changelog
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, x64]
     steps:
       - uses: iot-daci/template/.github/actions/require-pr-changelog@main

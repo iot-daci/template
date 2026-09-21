@@ -18,7 +18,7 @@ jobs:
   changes:
     name: Detect server changes
     if: github.event_name == 'workflow_dispatch' || github.event.pull_request.draft == false
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, x64]
     outputs:
       need_quality: ${{ steps.set.outputs.need_quality }}
     steps:
@@ -54,7 +54,7 @@ jobs:
     name: Code Quality Gate
     needs: [changes, quality]
     if: always() && (github.event_name == 'workflow_dispatch' || github.event.pull_request.draft == false)
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, x64]
     steps:
       - name: Evaluate gate
         run: |

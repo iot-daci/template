@@ -68,7 +68,7 @@ concurrency:
 
 jobs:
   claude-doc-review:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, x64]
     env:
       CLAUDE_MODEL: ${{ inputs.model }}
       DOCS_PATH: ${{ inputs.docs_path }}
