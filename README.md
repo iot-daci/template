@@ -27,6 +27,16 @@ GitHub Actions 可复用 workflow 模板库。业务仓库通过 `workflow_call`
 
 ## Self-hosted runner（container job 权限）
 
+### Docker Buildx 缓存
+
+打镜像 workflow（`java` / `java-17` / `js` / `docker` / `cpp`）使用 **ACR registry cache**（`…:buildcache`），不用 `type=gha`。Ubicloud 等 self-hosted runner 上 GHA cache 导出常失败：
+
+```text
+ERROR: error writing layer blob: Could not authorize multipart upload
+```
+
+镜像 push 已成功但 cache export 失败会导致整 job 取消。registry cache 与已有 `docker/login-action` 共用凭证，不依赖 runner 侧 GitHub Cache API。
+
 带 `container:` 的 job 在容器内以 root 写 workspace；self-hosted 的 `_work` 目录会跨 job 保留，下次 checkout 可能出现 `Permission denied`。
 
 各 workflow 在 job 末尾有 **Fix workspace permissions**（仅 `runner.environment == 'self-hosted'` 时执行），将 `$GITHUB_WORKSPACE` chown 回 runner 用户。GitHub-hosted runner 跳过此步。
