@@ -45,7 +45,7 @@ jobs:
     name: Server Quality
     needs: changes
     if: needs.changes.outputs.need_quality == 'true'
-    uses: iot-daci/template/.github/workflows/code-quality.yml@main
+    uses: iot-daci/template/.github/workflows/code-quality.yml@ghcr
     with:
       kind: server
       workdir: server

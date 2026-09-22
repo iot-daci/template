@@ -17,7 +17,7 @@ on:
 
 jobs:
   publish:
-    uses: iot-daci/template/.github/workflows/npm-publish.yml@main
+    uses: iot-daci/template/.github/workflows/npm-publish.yml@ghcr
     with:
       workdir: admin-portal
       package_path: packages/admin-core

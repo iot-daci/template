@@ -18,4 +18,4 @@ jobs:
     name: PR Changelog
     runs-on: [self-hosted, linux, x64]
     steps:
-      - uses: iot-daci/template/.github/actions/require-pr-changelog@main
+      - uses: iot-daci/template/.github/actions/require-pr-changelog@ghcr

@@ -58,7 +58,7 @@ DOCKER_PASSWORD=your-acr-pass
 
 - `REGISTRY=ghcr.io` 时：登录用 `GH_TOKEN`（需 `write:packages` + `contents`）
 - 其他 registry：登录用 runner `.env` 里的 `DOCKER_USERNAME` / `DOCKER_PASSWORD`
-- job 声明 `permissions: packages: write`（GHCR 推送需要）
+- **caller job** 须声明 `permissions: packages: write`（否则 reusable workflow 校验失败）（GHCR 推送需要）
 
 ### Docker Buildx 缓存
 
@@ -124,7 +124,10 @@ sudo chown -R <runner-user>:<runner-user> /home/<runner-user>/actions-runner/_wo
 ```yaml
 jobs:
   build:
-    uses: iot-daci/template/.github/workflows/java-17.yml@main
+    permissions:
+      contents: read
+      packages: write
+    uses: iot-daci/template/.github/workflows/java-17.yml@ghcr
     with:
       workdir: server
       docker_context: server/vpay-starter
@@ -165,7 +168,7 @@ PR → main
 ```yaml
 jobs:
   quality:
-    uses: iot-daci/template/.github/workflows/code-quality.yml@main
+    uses: iot-daci/template/.github/workflows/code-quality.yml@ghcr
     with:
       kind: server      # 当前仅实现 server；后续可加 frontend / docs 等
       workdir: server   # 或 yudao-cloud
@@ -188,7 +191,7 @@ checkout / push 走 `GH_TOKEN`，**caller 不需要** `permissions: contents: wr
 ```yaml
 jobs:
   sync-dev:
-    uses: YOUR_ORG/template/.github/workflows/auto-sync-features.yml@main
+    uses: YOUR_ORG/template/.github/workflows/auto-sync-features.yml@ghcr
     secrets:
       GH_TOKEN: ${{ secrets.GH_TOKEN }}
     with:
@@ -245,7 +248,7 @@ jobs:
       pull-requests: write
       issues: write
       id-token: write
-    uses: YOUR_ORG/template/.github/workflows/claude-pr-review.yml@main
+    uses: YOUR_ORG/template/.github/workflows/claude-pr-review.yml@ghcr
     secrets:
       ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
     with:
@@ -285,7 +288,7 @@ jobs:
       pull-requests: write
       issues: write
       id-token: write
-    uses: YOUR_ORG/template/.github/workflows/claude-feature-doc-review.yml@main
+    uses: YOUR_ORG/template/.github/workflows/claude-feature-doc-review.yml@ghcr
     secrets:
       ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
     with:
@@ -336,7 +339,7 @@ jobs:
 ```yaml
 jobs:
   publish:
-    uses: iot-daci/template/.github/workflows/npm-publish.yml@main
+    uses: iot-daci/template/.github/workflows/npm-publish.yml@ghcr
     with:
       workdir: admin-portal
       package_path: packages/admin-core
@@ -410,7 +413,7 @@ jobs:
   api-test:
     permissions:
       contents: read
-    uses: iot-daci/template/.github/workflows/api-auto-test.yml@main
+    uses: iot-daci/template/.github/workflows/api-auto-test.yml@ghcr
     with:
       workdir: "."
       python_version: "3.11"

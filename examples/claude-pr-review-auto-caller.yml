@@ -23,7 +23,7 @@ jobs:
       pull-requests: write
       issues: write
       id-token: write
-    uses: YOUR_ORG/template/.github/workflows/claude-pr-review-auto.yml@main
+    uses: YOUR_ORG/template/.github/workflows/claude-pr-review-auto.yml@ghcr
     secrets:
       ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
       # ANTHROPIC_BASE_URL: ${{ secrets.ANTHROPIC_BASE_URL }}

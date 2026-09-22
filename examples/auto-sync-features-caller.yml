@@ -11,7 +11,7 @@ on:
 
 jobs:
   sync-dev:
-    uses: iot-daci/template/.github/workflows/auto-sync-features.yml@main
+    uses: iot-daci/template/.github/workflows/auto-sync-features.yml@ghcr
     secrets:
       GH_TOKEN: ${{ secrets.GH_TOKEN }}
     with:

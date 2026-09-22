@@ -32,7 +32,7 @@ jobs:
   api-test:
     permissions:
       contents: read
-    uses: iot-daci/template/.github/workflows/api-auto-test.yml@main
+    uses: iot-daci/template/.github/workflows/api-auto-test.yml@ghcr
     with:
       workdir: "."
       python_version: "3.11"
