@@ -1,0 +1,63 @@
+name: Resolve docker image
+description: |
+  解析镜像仓库与 tag。优先使用 runner 环境变量（actions-runner/.env），未设置则用 GHCR 默认。
+  REGISTRY（默认 ghcr.io）、IMAGE_NAMESPACE（默认 repository_owner）、
+  IMAGE_TAG（默认当前分支名）、CACHE_TAG_FALLBACK（默认 main）。
+inputs:
+  docker_image:
+    description: 镜像名（不含 registry/namespace）
+    required: true
+  repository_owner:
+    description: GitHub repository owner，用作默认 IMAGE_NAMESPACE
+    required: true
+outputs:
+  registry:
+    description: Registry host，如 ghcr.io
+    value: ${{ steps.resolve.outputs.registry }}
+  image:
+    description: 完整镜像名（不含 tag）
+    value: ${{ steps.resolve.outputs.image }}
+  image_tag:
+    description: 主 tag（IMAGE_TAG 或分支名）
+    value: ${{ steps.resolve.outputs.image_tag }}
+  cache_tag_fallback:
+    description: cache-from 备用 tag
+    value: ${{ steps.resolve.outputs.cache_tag_fallback }}
+  use_ghcr:
+    description: 是否使用 GHCR 登录（registry=ghcr.io）
+    value: ${{ steps.resolve.outputs.use_ghcr }}
+runs:
+  using: composite
+  steps:
+    - id: resolve
+      shell: bash
+      env:
+        REPOSITORY_OWNER: ${{ inputs.repository_owner }}
+        DOCKER_IMAGE: ${{ inputs.docker_image }}
+      run: |
+        set -euo pipefail
+        registry="${REGISTRY:-ghcr.io}"
+        namespace="${IMAGE_NAMESPACE:-${REPOSITORY_OWNER}}"
+        image="${registry}/${namespace}/${DOCKER_IMAGE}"
+        branch="$(echo "${GITHUB_REF}" | cut -d'/' -f 3)"
+        image_tag="${IMAGE_TAG:-${branch}}"
+        cache_tag_fallback="${CACHE_TAG_FALLBACK:-main}"
+        use_ghcr="false"
+        if [ "${registry}" = "ghcr.io" ]; then
+          use_ghcr="true"
+        fi
+        {
+          echo "registry=${registry}"
+          echo "image=${image}"
+          echo "image_tag=${image_tag}"
+          echo "cache_tag_fallback=${cache_tag_fallback}"
+          echo "use_ghcr=${use_ghcr}"
+        } >> "$GITHUB_OUTPUT"
+        {
+          echo "REGISTRY=${registry}"
+          echo "IMAGE=${image}"
+          echo "IMAGE_TAG=${image_tag}"
+          echo "CACHE_TAG_FALLBACK=${cache_tag_fallback}"
+          echo "BRANCH=${branch}"
+        } >> "$GITHUB_ENV"
+        echo "Resolved docker image: ${image}:${image_tag} (registry=${registry}, cache_fallback=${cache_tag_fallback})"

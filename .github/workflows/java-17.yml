@@ -20,24 +20,21 @@ on:
         required: false
         default: true
     secrets:
-      DOCKER_USER:
-        required: true
-      DOCKER_PASSWORD:
-        required: true
       GH_TOKEN:
-        description: 写回 changelog.md（generate_changelog 为 true 时，main 构建成功后必填）
+        description: GHCR 推送与写回 changelog.md（需 write:packages + contents）
         required: true
 
 jobs:
   build:
     name: Build & push
+    permissions:
+      contents: read
+      packages: write
     runs-on: ubicloud-standard-2
     container:
       image: lzk90s/java-develop-env:maven3-openjdk17
       volumes:
         - /root/.m2:/root/.m2
-    env:
-      REGISTRY: registry.cn-hangzhou.aliyuncs.com
     steps:
 
       # 拉取代码
@@ -48,17 +45,28 @@ jobs:
       - name: Record build start time
         run: echo "BUILD_START_TIME=$(date +%s)" >> $GITHUB_ENV
 
-      # 登录docker
-      - name: Login to aliyun docker registry
+      - name: Resolve docker image
+        id: docker_image
+        uses: ./.github/actions/resolve-docker-image
+        with:
+          docker_image: ${{ inputs.docker_image }}
+          repository_owner: ${{ github.repository_owner }}
+
+      - name: Login to GHCR
+        if: steps.docker_image.outputs.use_ghcr == 'true'
         uses: docker/login-action@v4
         with:
-          registry: ${{ env.REGISTRY }}
-          username: ${{ secrets.DOCKER_USER }}
-          password: ${{ secrets.DOCKER_PASSWORD }}
+          registry: ghcr.io
+          username: ${{ github.repository_owner }}
+          password: ${{ secrets.GH_TOKEN }}
 
-      # 设置branch环境变量
-      - name: Set env.BRANCH
-        run: echo "BRANCH=$(echo $GITHUB_REF | cut -d'/' -f 3)" >> $GITHUB_ENV
+      - name: Login to container registry
+        if: steps.docker_image.outputs.use_ghcr != 'true'
+        uses: docker/login-action@v4
+        with:
+          registry: ${{ steps.docker_image.outputs.registry }}
+          username: ${{ env.DOCKER_USERNAME }}
+          password: ${{ env.DOCKER_PASSWORD }}
 
       # 获取当前时间戳
       - name: Get timestamp
@@ -75,8 +83,9 @@ jobs:
         uses: docker/metadata-action@v6
         with:
           images: |
-            ${{ env.REGISTRY }}/team-gs/${{ inputs.docker_image }}
+            ${{ env.IMAGE }}
           tags: |
+            type=raw,value=${{ env.IMAGE_TAG }}
             type=ref,event=branch
             type=ref,event=pr
             type=semver,pattern={{version}}
@@ -123,15 +132,14 @@ jobs:
         with:
           context: ${{ inputs.docker_context }}
           platforms: linux/amd64
-          # inline：缓存随镜像 push 写入，避免 mode=max 单独 export 大量 layer 到 ACR 卡住
+          # inline：缓存随镜像 push 写入，无单独 cache export 步骤
           cache-from: |
-            type=registry,ref=${{ env.REGISTRY }}/team-gs/${{ inputs.docker_image }}:${{ env.BRANCH }}
-            type=registry,ref=${{ env.REGISTRY }}/team-gs/${{ inputs.docker_image }}:main
+            type=registry,ref=${{ env.IMAGE }}:${{ env.IMAGE_TAG }}
+            type=registry,ref=${{ env.IMAGE }}:${{ env.CACHE_TAG_FALLBACK }}
           cache-to: type=inline
           push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          # 阿里云 ACR 不支持 buildx 默认 attestation 里的 empty OCI media type
           provenance: false
           sbom: false
 
@@ -191,6 +199,7 @@ jobs:
 
     outputs:
       version: ${{ steps.timestamp.outputs.value }}
+      registry_image: ${{ steps.docker_image.outputs.image }}
 
   changelog:
     name: Changelog
@@ -200,6 +209,6 @@ jobs:
     with:
       service_name: ${{ inputs.docker_image }}
       image_version: ${{ needs.build.outputs.version }}
-      registry_image: registry.cn-hangzhou.aliyuncs.com/team-gs/${{ inputs.docker_image }}
+      registry_image: ${{ needs.build.outputs.registry_image }}
     secrets:
       GH_TOKEN: ${{ secrets.GH_TOKEN }}

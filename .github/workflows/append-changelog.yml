@@ -17,7 +17,7 @@ on:
         type: string
         required: true
       registry_image:
-        description: 完整镜像名（不含 tag），例如 registry.../team-gs/com.lz.vpay.server
+        description: 完整镜像名（不含 tag），例如 ghcr.io/iot-daci/com.lz.vpay.server
         type: string
         required: false
         default: ""

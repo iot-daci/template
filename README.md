@@ -27,13 +27,42 @@ GitHub Actions 可复用 workflow 模板库。业务仓库通过 `workflow_call`
 
 ## Self-hosted runner（container job 权限）
 
+### Docker 镜像仓库
+
+打镜像 workflow（`java` / `java-17` / `js` / `docker` / `cpp`）通过 composite **`actions/resolve-docker-image`** 解析镜像地址，**优先读 runner 环境变量**（`actions-runner/.env`），未设置则用 GHCR 默认：
+
+| 变量 | 默认 | 说明 |
+|------|------|------|
+| `REGISTRY` | `ghcr.io` | 镜像仓库 host |
+| `IMAGE_NAMESPACE` | `<repository_owner>` | registry 与镜像名之间的路径，如 `iot-daci` 或 `team-gs` |
+| `IMAGE_TAG` | 当前 git 分支名 | 主 tag（push + cache-from） |
+| `CACHE_TAG_FALLBACK` | `main` | cache-from 备用 tag |
+| `DOCKER_USERNAME` | — | 非 GHCR 时登录用户名（写 `.env`） |
+| `DOCKER_PASSWORD` | — | 非 GHCR 时登录密码（写 `.env`） |
+
+默认完整镜像名：
+
+```text
+ghcr.io/<repository_owner>/<docker_image>:<IMAGE_TAG>
+```
+
+示例（切回阿里云 ACR + 固定 main tag）：
+
+```bash
+REGISTRY=registry.cn-hangzhou.aliyuncs.com
+IMAGE_NAMESPACE=team-gs
+IMAGE_TAG=main
+DOCKER_USERNAME=your-acr-user
+DOCKER_PASSWORD=your-acr-pass
+```
+
+- `REGISTRY=ghcr.io` 时：登录用 `GH_TOKEN`（需 `write:packages` + `contents`）
+- 其他 registry：登录用 runner `.env` 里的 `DOCKER_USERNAME` / `DOCKER_PASSWORD`
+- job 声明 `permissions: packages: write`（GHCR 推送需要）
+
 ### Docker Buildx 缓存
 
-打镜像 workflow（`java` / `java-17` / `js` / `docker` / `cpp`）使用 **inline cache**（`cache-to: type=inline`），从同镜像的 **分支 tag / main tag** 读取（`cache-from: type=registry,ref=…`）。
-
-- 不用 `type=gha`：Ubicloud self-hosted runner 上常报 `Could not authorize multipart upload`。
-- 不用 registry `mode=max`：会把所有中间 layer 再 push 一遍到 ACR 的 `:buildcache`，Ubicloud → 杭州 ACR 网络慢时会在 `#13 exporting cache to registry` 卡很久。
-- inline 缓存元数据随 `#11 pushing layers` 一并写入，无单独 cache export 步骤；对本仓「Maven/npm 构建在容器外、Dockerfile 只 COPY 产物」的场景足够。
+使用 **inline cache**（`cache-to: type=inline`），从同镜像的 **分支 tag / main tag** 读取（`cache-from: type=registry,ref=…`）。缓存元数据随镜像 push 一并写入，无单独 cache export 步骤。
 
 带 `container:` 的 job 在容器内以 root 写 workspace；self-hosted 的 `_work` 目录会跨 job 保留，下次 checkout 可能出现 `Permission denied`。
 
@@ -44,6 +73,11 @@ GitHub Actions 可复用 workflow 模板库。业务仓库通过 `workflow_call`
 ```bash
 RUNNER_UID=1001   # id -u <runner-user>
 RUNNER_GID=1001   # id -g <runner-user>
+
+# 可选：覆盖 Docker 仓库与 tag（见上表）
+# REGISTRY=ghcr.io
+# IMAGE_NAMESPACE=iot-daci
+# IMAGE_TAG=main
 ```
 
 改 `.env` 后重启 runner 服务。若未配置，job 会打 warning 并跳过 chown。
@@ -76,7 +110,7 @@ sudo chown -R <runner-user>:<runner-user> /home/<runner-user>/actions-runner/_wo
 <details>
 <summary>Image</summary>
 
-`registry.cn-hangzhou.aliyuncs.com/team-gs/com.lz.vcard.admin-portal:20260720102407`
+`ghcr.io/iot-daci/com.lz.vcard.admin-portal:20260720102407`
 
 </details>
 
@@ -97,8 +131,6 @@ jobs:
       docker_image: com.lz.vpay.server
       # generate_changelog: false  # 可选，默认 true
     secrets:
-      DOCKER_USER: ${{ secrets.DOCKER_USER }}
-      DOCKER_PASSWORD: ${{ secrets.DOCKER_PASSWORD }}
       GH_TOKEN: ${{ secrets.GH_TOKEN }}
 ```
 
