@@ -31,7 +31,7 @@ on:
 
 jobs:
   publish:
-    runs-on: [self-hosted, linux, x64]
+    runs-on: ubicloud-standard-2
     container:
       image: lzk90s/js-develop-env:alpine
       volumes:

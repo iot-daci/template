@@ -19,7 +19,7 @@ on:
 jobs:
   build:
     name: Build & deploy
-    runs-on: [self-hosted, linux, x64]
+    runs-on: ubicloud-standard-2
     container:
       image: lzk90s/java-develop-env:maven3-openjdk17
       volumes:

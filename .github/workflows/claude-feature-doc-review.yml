@@ -68,7 +68,7 @@ concurrency:
 
 jobs:
   claude-doc-review:
-    runs-on: [self-hosted, linux, x64]
+    runs-on: ubicloud-standard-2
     env:
       CLAUDE_MODEL: ${{ inputs.model }}
       DOCS_PATH: ${{ inputs.docs_path }}

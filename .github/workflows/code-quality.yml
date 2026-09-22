@@ -32,7 +32,7 @@ concurrency:
 jobs:
   validate:
     name: Validate kind
-    runs-on: [self-hosted, linux, x64]
+    runs-on: ubicloud-standard-2
     steps:
       - name: Check kind
         run: |
@@ -57,7 +57,7 @@ jobs:
     if: inputs.kind == 'server'
     needs: validate
     name: ${{ inputs.ref != '' && format('Unit tests ({0})', inputs.ref) || 'Unit tests' }}
-    runs-on: [self-hosted, linux, x64]
+    runs-on: ubicloud-standard-2
     container:
       image: lzk90s/java-develop-env:maven3-openjdk17
       volumes:
@@ -86,7 +86,7 @@ jobs:
     if: false
     needs: validate
     name: ${{ inputs.ref != '' && format('SpotBugs ({0})', inputs.ref) || 'SpotBugs' }}
-    runs-on: [self-hosted, linux, x64]
+    runs-on: ubicloud-standard-2
     container:
       image: lzk90s/java-develop-env:maven3-openjdk17
       volumes:

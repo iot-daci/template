@@ -33,7 +33,7 @@ concurrency:
 
 jobs:
   sync-all-features-to-dev:
-    runs-on: [self-hosted, linux, x64]
+    runs-on: ubicloud-standard-2
     steps:
 
       - name: Checkout repository
