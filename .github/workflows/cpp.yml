@@ -30,7 +30,7 @@ on:
 
 jobs:
   build:
-    runs-on: ubicloud-standard-2
+    runs-on: ubuntu-latest
     container:
       image: lzk90s/cpp-develop-env:gcc-14
       volumes:

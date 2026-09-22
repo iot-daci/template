@@ -39,7 +39,7 @@ concurrency:
 jobs:
   append:
     name: Append changelog
-    runs-on: ubicloud-standard-2
+    runs-on: ubuntu-latest
     if: ${{ github.ref_name == inputs.target_branch }}
     steps:
       - name: Require GH_TOKEN

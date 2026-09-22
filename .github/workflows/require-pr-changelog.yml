@@ -9,6 +9,6 @@ on:
 jobs:
   check:
     name: PR Changelog
-    runs-on: ubicloud-standard-2
+    runs-on: ubuntu-latest
     steps:
       - uses: iot-daci/template/.github/actions/require-pr-changelog@main

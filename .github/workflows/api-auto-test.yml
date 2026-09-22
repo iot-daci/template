@@ -80,7 +80,7 @@ permissions:
 jobs:
   api-auto-test:
     name: Run API Auto Tests
-    runs-on: ubicloud-standard-2
+    runs-on: ubuntu-latest
     defaults:
       run:
         working-directory: ${{ inputs.workdir }}

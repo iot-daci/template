@@ -37,7 +37,7 @@ on:
 
 jobs:
   build:
-    runs-on: ubicloud-standard-2
+    runs-on: ubuntu-latest
     container:
       image: lzk90s/js-develop-env:alpine
       volumes:

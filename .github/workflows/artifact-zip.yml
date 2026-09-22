@@ -22,7 +22,7 @@ on:
 
 jobs:
   package-and-upload:
-    runs-on: ubicloud-standard-2
+    runs-on: ubuntu-latest
 
     steps:
       - name: Checkout repository

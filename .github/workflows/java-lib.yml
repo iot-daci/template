@@ -19,7 +19,7 @@ on:
 jobs:
   build:
     name: Build & deploy
-    runs-on: ubicloud-standard-2
+    runs-on: ubuntu-latest
     container:
       image: lzk90s/java-develop-env:maven3-openjdk11
       volumes:
