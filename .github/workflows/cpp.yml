@@ -161,6 +161,16 @@ jobs:
             echo "📦 Download artifacts from the Actions tab." >> $GITHUB_STEP_SUMMARY
           fi
 
+      # self-hosted + container：容器 root 写入 workspace，改回 runner 用户，避免下次 checkout EACCES
+      - name: Fix workspace permissions
+        if: always() && runner.environment == 'self-hosted'
+        run: |
+          if [ -z "${RUNNER_UID:-}" ] || [ -z "${RUNNER_GID:-}" ]; then
+            echo "::warning::RUNNER_UID/RUNNER_GID not set in actions-runner .env — skip chown (see template/README.md)"
+            exit 0
+          fi
+          chown -R "${RUNNER_UID}:${RUNNER_GID}" "$GITHUB_WORKSPACE"
+
     outputs:
       version: ${{ steps.timestamp.outputs.value }}
 

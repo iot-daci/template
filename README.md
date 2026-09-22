@@ -25,6 +25,27 @@ GitHub Actions 可复用 workflow 模板库。业务仓库通过 `workflow_call`
 | **`claude-feature-doc-review.yml`** | **Feature 设计文档审查（Claude，feature-* push 且 `dev-doc/docs` 变更时自动审核需求/技术方案）** |
 | **`api-auto-test.yml`** | **Python/pytest API 自动化测试**（可复用）：装依赖 → 注入 `.env`/mTLS 证书 → 跑测 → **Job Summary** + JUnit artifact |
 
+## Self-hosted runner（container job 权限）
+
+带 `container:` 的 job 在容器内以 root 写 workspace；self-hosted 的 `_work` 目录会跨 job 保留，下次 checkout 可能出现 `Permission denied`。
+
+各 workflow 在 job 末尾有 **Fix workspace permissions**（仅 `runner.environment == 'self-hosted'` 时执行），将 `$GITHUB_WORKSPACE` chown 回 runner 用户。GitHub-hosted runner 跳过此步。
+
+**每台 self-hosted runner** 在 `actions-runner/.env` 追加（UID/GID 用该机器上 runner 服务用户的实际值）：
+
+```bash
+RUNNER_UID=1001   # id -u <runner-user>
+RUNNER_GID=1001   # id -g <runner-user>
+```
+
+改 `.env` 后重启 runner 服务。若未配置，job 会打 warning 并跳过 chown。
+
+已卡住时一次性清理（在 runner 主机上）：
+
+```bash
+sudo chown -R <runner-user>:<runner-user> /home/<runner-user>/actions-runner/_work
+```
+
 ## Build 后 Changelog（main）
 
 `java.yml` / `java-17.yml` / `js.yml` / `docker.yml` / `cpp.yml` 在 **build 成功、当前分支为 `main`，且 `generate_changelog` 为 true（默认）** 时，会调用 `append-changelog.yml`：
