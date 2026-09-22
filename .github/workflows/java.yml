@@ -47,7 +47,7 @@ jobs:
 
       - name: Resolve docker image
         id: docker_image
-        uses: ./.github/actions/resolve-docker-image
+        uses: iot-daci/template/.github/actions/resolve-docker-image@ghcr
         with:
           docker_image: ${{ inputs.docker_image }}
           repository_owner: ${{ github.repository_owner }}
