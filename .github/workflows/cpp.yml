@@ -112,9 +112,11 @@ jobs:
         with:
           context: ${{ inputs.docker_context }}
           platforms: linux/amd64
-          # Ubicloud self-hosted runner 上 type=gha 常报 Could not authorize multipart upload，改用 ACR registry cache
-          cache-from: type=registry,ref=${{ env.REGISTRY }}/team-gs/${{ inputs.docker_image }}:buildcache
-          cache-to: type=registry,ref=${{ env.REGISTRY }}/team-gs/${{ inputs.docker_image }}:buildcache,mode=max,image-manifest=true
+          # inline：缓存随镜像 push 写入，避免 mode=max 单独 export 大量 layer 到 ACR 卡住
+          cache-from: |
+            type=registry,ref=${{ env.REGISTRY }}/team-gs/${{ inputs.docker_image }}:${{ env.BRANCH }}
+            type=registry,ref=${{ env.REGISTRY }}/team-gs/${{ inputs.docker_image }}:main
+          cache-to: type=inline
           push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}

@@ -29,13 +29,11 @@ GitHub Actions 可复用 workflow 模板库。业务仓库通过 `workflow_call`
 
 ### Docker Buildx 缓存
 
-打镜像 workflow（`java` / `java-17` / `js` / `docker` / `cpp`）使用 **ACR registry cache**（`…:buildcache`），不用 `type=gha`。Ubicloud 等 self-hosted runner 上 GHA cache 导出常失败：
+打镜像 workflow（`java` / `java-17` / `js` / `docker` / `cpp`）使用 **inline cache**（`cache-to: type=inline`），从同镜像的 **分支 tag / main tag** 读取（`cache-from: type=registry,ref=…`）。
 
-```text
-ERROR: error writing layer blob: Could not authorize multipart upload
-```
-
-镜像 push 已成功但 cache export 失败会导致整 job 取消。registry cache 与已有 `docker/login-action` 共用凭证，不依赖 runner 侧 GitHub Cache API。
+- 不用 `type=gha`：Ubicloud self-hosted runner 上常报 `Could not authorize multipart upload`。
+- 不用 registry `mode=max`：会把所有中间 layer 再 push 一遍到 ACR 的 `:buildcache`，Ubicloud → 杭州 ACR 网络慢时会在 `#13 exporting cache to registry` 卡很久。
+- inline 缓存元数据随 `#11 pushing layers` 一并写入，无单独 cache export 步骤；对本仓「Maven/npm 构建在容器外、Dockerfile 只 COPY 产物」的场景足够。
 
 带 `container:` 的 job 在容器内以 root 写 workspace；self-hosted 的 `_work` 目录会跨 job 保留，下次 checkout 可能出现 `Permission denied`。
 
