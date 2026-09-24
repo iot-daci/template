@@ -1,0 +1,26 @@
+# 复制到业务仓 .github/workflows/auto-sync-gray.yml
+# gray-* push 时将 main + 所有 gray-* 合并到 gray，再 push gray 触发灰度编译
+
+name: Auto Sync Gray to Gray
+
+on:
+  push:
+    branches:
+      - "gray-*"
+      - "main"
+
+jobs:
+  auto-sync-gray:
+    if: |
+      github.ref_name != 'main' ||
+      (github.ref_name == 'main' &&
+       github.event.head_commit.message != 'Auto-merge: gray-' &&
+       !contains(github.event.head_commit.message, 'Merge pull request'))
+    uses: iot-daci/template/.github/workflows/auto-sync-features.yml@ghcr
+    with:
+      branch_pattern: gray-*
+      include_main: true
+      base_branch: main
+      target_branch: gray
+    secrets:
+      GH_TOKEN: ${{ secrets.GH_TOKEN }}

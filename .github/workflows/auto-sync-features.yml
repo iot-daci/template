@@ -28,7 +28,7 @@ on:
         required: true
 
 concurrency:
-  group: auto-sync-dev-${{ github.repository }}
+  group: auto-sync-${{ inputs.target_branch }}-${{ github.repository }}
   cancel-in-progress: false
 
 jobs:
