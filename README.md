@@ -11,9 +11,12 @@ GitHub Actions 可复用 workflow 模板库。业务仓库通过 `workflow_call`
 | `js.yml` | 前端构建与 Docker 镜像；**main 构建成功后**追加 `changelog.md` |
 | `notify-image.yml` | 构建后在关联 PR 评论 Docker 镜像 tag（由 java/js/docker 等调用；不再写 changelog.md） |
 | `actions/validate-pr` | 一次校验 PR 标题（`type(scope): subject`）+ 非空 `## Changelog`；Ruleset 勾 **`PR Check`** |
-| **`code-quality.yml`** | **代码质量检查**（可复用）：`kind=server` 时并行调 `actions/java-unit-test` + `actions/java-spotbugs` |
-| `actions/java-unit-test` | Java 单测 + JaCoCo（供 code-quality 等调用） |
-| `actions/java-spotbugs` | SpotBugs + FindSecBugs（供 code-quality 等调用） |
+| **`unit-tests.yml`** | **PR 单测**（可复用）：`language=java\|js\|go`；只应由 PR→main caller 调用 |
+| `code-quality.yml` | **已弃用**；`kind=server` 时转调 `unit-tests.yml`（language=java） |
+| `actions/java-unit-test` | Java 单测 + JaCoCo |
+| `actions/js-unit-test` | JS 单测（pnpm/npm/yarn） |
+| `actions/go-unit-test` | Go 单测（`go test ./...`） |
+| `actions/java-spotbugs` | SpotBugs（可选；默认不挂在 unit-tests 上） |
 | `docker.yml` | Docker 镜像构建；**main 构建成功后**追加 `changelog.md` |
 | `npm-publish.yml` | npm 包发布（pnpm monorepo，阿里云私服） |
 | `cpp.yml` | C++ 构建与 Docker 镜像；**main 构建成功后**追加 `changelog.md` |
@@ -147,41 +150,42 @@ PR 使用业务仓 `.github/pull_request_template.md`（示例：[examples/pull_
 
 硬约束：业务仓接入 [examples/validate-pr-caller.yml](examples/validate-pr-caller.yml)（本地 job + `actions/validate-pr`），Ruleset 勾 **`PR Check`**（与 `Code Quality Gate` 并列）。校验 PR 标题（Conventional Commits）与非空 `## Changelog`；缺段落、空内容或仍是模板占位 `-` 时检查失败。
 
-## Code Quality Gate（Java）
+## Unit Tests Gate（PR → main）
 
-目前仅覆盖 **Java（server）**。业务仓用独立 caller，**只在 PR → main** 触发（不要挂在 feature push 构建流水线上）。
+与 **编译打包模板分开**：单测只在「要合进 main 的 PR」上跑，不挂在 feature push / 每次 commit 的打包流水线。
 
 ```
 PR → main
- └─ Code Quality Checks
-      ├─ Detect changes（是否改了 server/**）
-      ├─ 有变更则跑 code-quality.yml（单测 + SpotBugs）
-      └─ Code Quality Gate  ✅ 分支保护只勾这一项
+ └─ Unit Tests
+      ├─ Detect changes（按路径 → java / js / go）
+      ├─ 有变更则调 unit-tests.yml（language=…）
+      └─ Code Quality Gate  ✅ Ruleset 只勾这一项（名称保持兼容）
 ```
 
 | PR 改动 | Gate |
 |---------|------|
-| 改了 server | 真跑检测 |
-| 未改 server | skip 检测，Gate 直接 pass |
-| draft | 整条 workflow 跳过 |
+| 改了对应语言路径 | 跑该语言单测 |
+| 未改相关路径 | 对应 job skip，Gate pass |
+| draft | 整条跳过 |
 
 **约定**
 
-1. Workflow **不要**用 `on.pull_request.paths` 过滤（否则未改时 Gate 不会出现）。始终触发，用 `changes` job 判断。
-2. 分支保护只勾 `Code Quality Gate`（或业务仓里同名 Gate），**不要**勾 Unit tests / SpotBugs 子 job。
-3. 不要用账号 / Org Ruleset 绑这些检查。
+1. **不要**用 `on.pull_request.paths` 过滤（否则未改时 Gate 不出现）。始终触发，用 `changes` 判断。
+2. Ruleset 只勾 **`Code Quality Gate`**，不要勾各语言子 job。
+3. 不要把 `unit-tests.yml` 接到 java.yml/js.yml 等打包 workflow。
 
 ```yaml
 jobs:
-  quality:
-    uses: iot-daci/template/.github/workflows/code-quality.yml@ghcr
+  test-java:
+    uses: iot-daci/template/.github/workflows/unit-tests.yml@ghcr
     with:
-      kind: server      # 当前仅实现 server；后续可加 frontend / docs 等
+      language: java
       workdir: server   # 或 yudao-cloud
       # modules: -pl xxx -am
+  # test-js / test-go 同理
 ```
 
-示例 caller：[examples/code-quality-caller.yml](examples/code-quality-caller.yml)。
+示例 caller：[examples/unit-tests-caller.yml](examples/unit-tests-caller.yml)。
 
 ## Auto Sync Features → Dev
 

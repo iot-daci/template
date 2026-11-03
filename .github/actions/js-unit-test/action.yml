@@ -1,0 +1,107 @@
+name: JS unit tests
+description: "Checkout, install deps, run JS unit tests (pnpm/npm/yarn)"
+
+inputs:
+  workdir:
+    description: JS project root (package.json)
+    required: false
+    default: "."
+  package_manager:
+    description: pnpm | npm | yarn
+    required: false
+    default: "pnpm"
+  test_command:
+    description: Override test command; empty → <pm> test
+    required: false
+    default: ""
+  node_version:
+    description: Node.js version
+    required: false
+    default: "20"
+  checkout_ref:
+    description: Git ref/SHA to checkout
+    required: true
+  ref_label:
+    description: Optional label for logs
+    required: false
+    default: ""
+
+runs:
+  using: composite
+  steps:
+    - name: Checkout source
+      uses: actions/checkout@v7
+      with:
+        ref: ${{ inputs.checkout_ref }}
+
+    - name: Setup Node
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ inputs.node_version }}
+
+    - name: Enable corepack (pnpm/yarn)
+      if: inputs.package_manager == 'pnpm' || inputs.package_manager == 'yarn'
+      shell: bash
+      run: corepack enable
+
+    - name: Install dependencies
+      shell: bash
+      working-directory: ${{ inputs.workdir }}
+      run: |
+        case "${{ inputs.package_manager }}" in
+          pnpm)
+            if [ -f pnpm-lock.yaml ]; then
+              pnpm install --frozen-lockfile
+            else
+              pnpm install
+            fi
+            ;;
+          npm)
+            if [ -f package-lock.json ]; then
+              npm ci
+            else
+              npm install
+            fi
+            ;;
+          yarn)
+            if [ -f yarn.lock ]; then
+              yarn install --frozen-lockfile
+            else
+              yarn install
+            fi
+            ;;
+          *)
+            echo "Unsupported package_manager='${{ inputs.package_manager }}'"
+            exit 1
+            ;;
+        esac
+
+    - name: Run unit tests
+      shell: bash
+      working-directory: ${{ inputs.workdir }}
+      env:
+        TEST_COMMAND: ${{ inputs.test_command }}
+        PM: ${{ inputs.package_manager }}
+      run: |
+        if [ -n "$TEST_COMMAND" ]; then
+          echo "Running override: $TEST_COMMAND"
+          bash -lc "$TEST_COMMAND"
+          exit 0
+        fi
+        case "$PM" in
+          pnpm) pnpm test ;;
+          npm) npm test ;;
+          yarn) yarn test ;;
+        esac
+
+    - name: Summary
+      if: always() && !cancelled()
+      shell: bash
+      run: |
+        {
+          echo "## JS unit tests"
+          echo ""
+          echo "- workdir: \`${{ inputs.workdir }}\`"
+          echo "- package_manager: \`${{ inputs.package_manager }}\`"
+          echo "- ref: \`${{ inputs.checkout_ref }}\`"
+        } >>"$GITHUB_STEP_SUMMARY"

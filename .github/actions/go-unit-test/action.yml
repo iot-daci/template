@@ -1,0 +1,62 @@
+name: Go unit tests
+description: "Checkout and run go test"
+
+inputs:
+  workdir:
+    description: Go module root (go.mod)
+    required: false
+    default: "."
+  test_command:
+    description: Override test command; empty → go test ./...
+    required: false
+    default: ""
+  go_version:
+    description: Go version
+    required: false
+    default: "1.22"
+  checkout_ref:
+    description: Git ref/SHA to checkout
+    required: true
+  ref_label:
+    description: Optional label for logs
+    required: false
+    default: ""
+
+runs:
+  using: composite
+  steps:
+    - name: Checkout source
+      uses: actions/checkout@v7
+      with:
+        ref: ${{ inputs.checkout_ref }}
+
+    - name: Setup Go
+      uses: actions/setup-go@v5
+      with:
+        go-version: ${{ inputs.go_version }}
+        cache-dependency-path: ${{ inputs.workdir }}/go.sum
+
+    - name: Run unit tests
+      shell: bash
+      working-directory: ${{ inputs.workdir }}
+      env:
+        TEST_COMMAND: ${{ inputs.test_command }}
+      run: |
+        if [ -n "$TEST_COMMAND" ]; then
+          echo "Running override: $TEST_COMMAND"
+          bash -lc "$TEST_COMMAND"
+        else
+          go test ./...
+        fi
+
+    - name: Summary
+      if: always() && !cancelled()
+      shell: bash
+      run: |
+        {
+          echo "## Go unit tests"
+          echo ""
+          echo "- workdir: \`${{ inputs.workdir }}\`"
+          echo "- go_version: \`${{ inputs.go_version }}\`"
+          echo "- ref: \`${{ inputs.checkout_ref }}\`"
+        } >>"$GITHUB_STEP_SUMMARY"

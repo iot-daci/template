@@ -1,0 +1,113 @@
+# 复制到业务仓 .github/workflows/unit-tests-check.yml（或保留旧文件名 code-quality-check.yml）
+# 只在 PR → main 触发；分支保护 / Ruleset 只勾「Code Quality Gate」
+# 不要挂在 feature push 的打包流水线上。
+
+name: Unit Tests
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+    branches:
+      - main
+  workflow_dispatch:
+
+concurrency:
+  group: unit-tests-check-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  changes:
+    name: Detect changes
+    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+    outputs:
+      java: ${{ steps.set.outputs.java }}
+      js: ${{ steps.set.outputs.js }}
+      go: ${{ steps.set.outputs.go }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - id: set
+        run: |
+          set -euo pipefail
+          java=false
+          js=false
+          go=false
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            # 手工触发：按需改成只跑某语言
+            java=true
+            echo "java=$java" >> "$GITHUB_OUTPUT"
+            echo "js=$js" >> "$GITHUB_OUTPUT"
+            echo "go=$go" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          base="${{ github.event.pull_request.base.sha }}"
+          head="${{ github.event.pull_request.head.sha }}"
+          echo "Diff ${base}...${head}"
+          git diff --name-only "${base}...${head}" | tee "$RUNNER_TEMP/changed.txt" || true
+          # ↓ 按仓库改路径
+          grep -qE '^server/' "$RUNNER_TEMP/changed.txt" && java=true || true
+          grep -qE '^admin-portal-next/' "$RUNNER_TEMP/changed.txt" && js=true || true
+          # grep -qE '^some-go-service/' "$RUNNER_TEMP/changed.txt" && go=true || true
+          echo "java=$java" >> "$GITHUB_OUTPUT"
+          echo "js=$js" >> "$GITHUB_OUTPUT"
+          echo "go=$go" >> "$GITHUB_OUTPUT"
+
+  test-java:
+    name: Java tests
+    needs: changes
+    if: needs.changes.outputs.java == 'true'
+    uses: iot-daci/template/.github/workflows/unit-tests.yml@ghcr
+    with:
+      language: java
+      workdir: server
+
+  # test-js:
+  #   name: JS tests
+  #   needs: changes
+  #   if: needs.changes.outputs.js == 'true'
+  #   uses: iot-daci/template/.github/workflows/unit-tests.yml@ghcr
+  #   with:
+  #     language: js
+  #     workdir: admin-portal-next
+  #     package_manager: pnpm
+
+  # test-go:
+  #   name: Go tests
+  #   needs: changes
+  #   if: needs.changes.outputs.go == 'true'
+  #   uses: iot-daci/template/.github/workflows/unit-tests.yml@ghcr
+  #   with:
+  #     language: go
+  #     workdir: .
+
+  quality-gate:
+    name: Code Quality Gate
+    needs: [changes, test-java]
+    # 启用 js/go 后把对应 job 加进 needs
+    if: always() && (github.event_name == 'workflow_dispatch' || github.event.pull_request.draft == false)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Evaluate gate
+        env:
+          JAVA_NEED: ${{ needs.changes.outputs.java }}
+          JAVA_RESULT: ${{ needs.test-java.result }}
+        run: |
+          set -euo pipefail
+          fail=0
+          check() {
+            local need="$1" result="$2" label="$3"
+            echo "$label: need=$need result=$result"
+            if [ "$need" = "true" ] && [ "$result" != "success" ]; then
+              echo "$label unit tests did not succeed"
+              fail=1
+            fi
+          }
+          check "$JAVA_NEED" "$JAVA_RESULT" "java"
+          # check "$JS_NEED" "$JS_RESULT" "js"
+          # check "$GO_NEED" "$GO_RESULT" "go"
+          if [ "$JAVA_NEED" != "true" ]; then
+            echo "No java paths changed — java skipped"
+          fi
+          exit "$fail"

@@ -1,110 +1,46 @@
-name: Code quality checks
+name: Code quality checks (deprecated)
+
+# 已迁移到 unit-tests.yml（language=java|js|go）。
+# 保留本文件仅作兼容：kind=server 时转调 Java 单测。
+# 新接入请改用 examples/unit-tests-caller.yml。
 
 on:
   workflow_call:
     inputs:
       kind:
-        description: >
-          检测类别。当前仅实现 server（Java 单测+SpotBugs）；
-          后续可扩展 frontend / portal / docs 等
+        description: "仅兼容 server → language=java；请改用 unit-tests.yml"
         type: string
         required: true
       workdir:
-        description: 工程根目录
         type: string
         required: false
         default: "."
       modules:
-        description: server 专用 — 传给 Maven 的额外参数，例如 -pl xxx -am
         type: string
         required: false
         default: ""
       ref:
-        description: 要检测的 Git ref；留空则用触发时的 SHA
         type: string
         required: false
         default: ""
 
-concurrency:
-  group: code-quality-${{ inputs.kind }}-${{ github.workflow }}-${{ inputs.ref || github.ref }}-${{ inputs.workdir }}
-  cancel-in-progress: true
-
 jobs:
-  validate:
-    name: Validate kind
-    runs-on: ubicloud-standard-2
-    steps:
-      - name: Check kind
-        run: |
-          kind="${{ inputs.kind }}"
-          case "$kind" in
-            server)
-              echo "kind=$kind"
-              ;;
-            frontend|portal|docs)
-              echo "kind='$kind' is reserved but not implemented yet (Java-only for now)"
-              exit 1
-              ;;
-            *)
-              echo "Unsupported kind='$kind'. Currently supported: server"
-              exit 1
-              ;;
-          esac
-
-  # ── server：Java 单测 + SpotBugs（并行；步骤在 actions 里）──
-
-  unit-tests:
+  forward:
+    name: Forward to unit-tests
     if: inputs.kind == 'server'
-    needs: validate
-    name: ${{ inputs.ref != '' && format('Unit tests ({0})', inputs.ref) || 'Unit tests' }}
-    runs-on: ubicloud-standard-2
-    container:
-      image: lzk90s/java-develop-env:maven3-openjdk17
-      volumes:
-        - /root/.m2:/root/.m2
+    uses: ./.github/workflows/unit-tests.yml
+    with:
+      language: java
+      workdir: ${{ inputs.workdir }}
+      modules: ${{ inputs.modules }}
+      ref: ${{ inputs.ref }}
+
+  reject:
+    name: Unsupported kind
+    if: inputs.kind != 'server'
+    runs-on: ubuntu-latest
     steps:
-      # 必须写 owner/repo@ref：caller 仓没有这些 action，相对路径会落到 vcard/vpay 工作区
-      - uses: iot-daci/template/.github/actions/java-unit-test@ghcr
-        with:
-          workdir: ${{ inputs.workdir }}
-          modules: ${{ inputs.modules }}
-          checkout_ref: ${{ inputs.ref != '' && inputs.ref || github.sha }}
-          ref_label: ${{ inputs.ref }}
-
-      # self-hosted + container：容器 root 写入 workspace，改回 runner 用户，避免下次 checkout EACCES
-      - name: Fix workspace permissions
-        if: always() && runner.environment == 'self-hosted'
-        run: |
-          if [ -z "${RUNNER_UID:-}" ] || [ -z "${RUNNER_GID:-}" ]; then
-            echo "::warning::RUNNER_UID/RUNNER_GID not set in actions-runner .env — skip chown (see template/README.md)"
-            exit 0
-          fi
-          chown -R "${RUNNER_UID}:${RUNNER_GID}" "$GITHUB_WORKSPACE"
-
-  # SpotBugs：临时关闭；需要时把 if 改回 inputs.kind == 'server'
-  spotbugs:
-    if: false
-    needs: validate
-    name: ${{ inputs.ref != '' && format('SpotBugs ({0})', inputs.ref) || 'SpotBugs' }}
-    runs-on: ubicloud-standard-2
-    container:
-      image: lzk90s/java-develop-env:maven3-openjdk17
-      volumes:
-        - /root/.m2:/root/.m2
-    steps:
-      - uses: iot-daci/template/.github/actions/java-spotbugs@ghcr
-        with:
-          workdir: ${{ inputs.workdir }}
-          modules: ${{ inputs.modules }}
-          checkout_ref: ${{ inputs.ref != '' && inputs.ref || github.sha }}
-          ref_label: ${{ inputs.ref }}
-
-      # self-hosted + container：容器 root 写入 workspace，改回 runner 用户，避免下次 checkout EACCES
-      - name: Fix workspace permissions
-        if: always() && runner.environment == 'self-hosted'
-        run: |
-          if [ -z "${RUNNER_UID:-}" ] || [ -z "${RUNNER_GID:-}" ]; then
-            echo "::warning::RUNNER_UID/RUNNER_GID not set in actions-runner .env — skip chown (see template/README.md)"
-            exit 0
-          fi
-          chown -R "${RUNNER_UID}:${RUNNER_GID}" "$GITHUB_WORKSPACE"
+      - run: |
+          echo "code-quality.yml is deprecated. Use unit-tests.yml with language=java|js|go."
+          echo "Unsupported kind='${{ inputs.kind }}'"
+          exit 1

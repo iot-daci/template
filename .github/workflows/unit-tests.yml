@@ -1,0 +1,119 @@
+name: Unit tests
+
+# 仅应由业务仓在 pull_request → main 时调用（不要挂在每次 push 的打包流水线里）。
+on:
+  workflow_call:
+    inputs:
+      language:
+        description: "java | js | go"
+        type: string
+        required: true
+      workdir:
+        description: 工程根目录（相对仓库根）
+        type: string
+        required: false
+        default: "."
+      modules:
+        description: Java 专用 — 传给 Maven 的额外参数，例如 -pl xxx -am
+        type: string
+        required: false
+        default: ""
+      package_manager:
+        description: JS 专用 — pnpm | npm | yarn
+        type: string
+        required: false
+        default: "pnpm"
+      test_command:
+        description: 可选；覆盖默认单测命令（在 workdir 下执行）
+        type: string
+        required: false
+        default: ""
+      node_version:
+        description: JS 专用 Node 版本
+        type: string
+        required: false
+        default: "20"
+      go_version:
+        description: Go 专用版本
+        type: string
+        required: false
+        default: "1.22"
+      ref:
+        description: 要检测的 Git ref；留空则用触发时的 SHA
+        type: string
+        required: false
+        default: ""
+
+concurrency:
+  group: unit-tests-${{ inputs.language }}-${{ github.workflow }}-${{ inputs.ref || github.ref }}-${{ inputs.workdir }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    name: Validate language
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check language
+        run: |
+          case "${{ inputs.language }}" in
+            java|js|go) echo "language=${{ inputs.language }}" ;;
+            *)
+              echo "Unsupported language='${{ inputs.language }}'. Supported: java, js, go"
+              exit 1
+              ;;
+          esac
+
+  java:
+    if: inputs.language == 'java'
+    needs: validate
+    name: ${{ inputs.ref != '' && format('Unit tests java ({0})', inputs.ref) || 'Unit tests (java)' }}
+    runs-on: ubicloud-standard-2
+    container:
+      image: lzk90s/java-develop-env:maven3-openjdk17
+      volumes:
+        - /root/.m2:/root/.m2
+    steps:
+      - uses: iot-daci/template/.github/actions/java-unit-test@ghcr
+        with:
+          workdir: ${{ inputs.workdir }}
+          modules: ${{ inputs.modules }}
+          checkout_ref: ${{ inputs.ref != '' && inputs.ref || github.sha }}
+          ref_label: ${{ inputs.ref }}
+
+      - name: Fix workspace permissions
+        if: always() && runner.environment == 'self-hosted'
+        run: |
+          if [ -z "${RUNNER_UID:-}" ] || [ -z "${RUNNER_GID:-}" ]; then
+            echo "::warning::RUNNER_UID/RUNNER_GID not set in actions-runner .env — skip chown (see template/README.md)"
+            exit 0
+          fi
+          chown -R "${RUNNER_UID}:${RUNNER_GID}" "$GITHUB_WORKSPACE"
+
+  js:
+    if: inputs.language == 'js'
+    needs: validate
+    name: ${{ inputs.ref != '' && format('Unit tests js ({0})', inputs.ref) || 'Unit tests (js)' }}
+    runs-on: ubicloud-standard-2
+    steps:
+      - uses: iot-daci/template/.github/actions/js-unit-test@ghcr
+        with:
+          workdir: ${{ inputs.workdir }}
+          package_manager: ${{ inputs.package_manager }}
+          test_command: ${{ inputs.test_command }}
+          node_version: ${{ inputs.node_version }}
+          checkout_ref: ${{ inputs.ref != '' && inputs.ref || github.sha }}
+          ref_label: ${{ inputs.ref }}
+
+  go:
+    if: inputs.language == 'go'
+    needs: validate
+    name: ${{ inputs.ref != '' && format('Unit tests go ({0})', inputs.ref) || 'Unit tests (go)' }}
+    runs-on: ubicloud-standard-2
+    steps:
+      - uses: iot-daci/template/.github/actions/go-unit-test@ghcr
+        with:
+          workdir: ${{ inputs.workdir }}
+          test_command: ${{ inputs.test_command }}
+          go_version: ${{ inputs.go_version }}
+          checkout_ref: ${{ inputs.ref != '' && inputs.ref || github.sha }}
+          ref_label: ${{ inputs.ref }}
