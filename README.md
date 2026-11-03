@@ -11,6 +11,7 @@ GitHub Actions 可复用 workflow 模板库。业务仓库通过 `workflow_call`
 | `js.yml` | 前端构建与 Docker 镜像；**main 构建成功后**追加 `changelog.md` |
 | `append-changelog.yml` | 构建后写 changelog（由 java/js/docker 等调用）：查关联已合并 PR → prepend → push |
 | `actions/require-pr-changelog` | PR 必须含非空 `## Changelog`；业务仓本地 job 调用，Ruleset 勾 **`PR Changelog`** |
+| `actions/require-pr-title` | PR 标题必须为 `type(scope): subject`（强制 squash 时标题=进 main 的 commit）；Ruleset 勾 **`PR Title`** |
 | **`code-quality.yml`** | **代码质量检查**（可复用）：`kind=server` 时并行调 `actions/java-unit-test` + `actions/java-spotbugs` |
 | `actions/java-unit-test` | Java 单测 + JaCoCo（供 code-quality 等调用） |
 | `actions/java-spotbugs` | SpotBugs + FindSecBugs（供 code-quality 等调用） |
@@ -106,7 +107,7 @@ sudo chown -R <runner-user>:<runner-user> /home/<runner-user>/actions-runner/_wo
 | `auto-sync-features.yml` 合并 | `Auto-merge: <branch> → <target>`（hook 已放行此前缀） |
 | 人工解决 auto-sync 冲突（文档示例） | `chore(merge): resolve conflicts with feature-xxx` |
 
-业务仓本地提交须为 `type(scope): subject`；细则在 `standard-spec-rules` → `ai-spec/coding/conventional-commits.md`（不要把整份 ai-spec 拷进本仓）。
+业务仓若 **强制 squash 合 main**：请把 **PR 标题**写成 `type(scope): subject`，并启用 `examples/require-pr-title-caller.yml`；仓库 Settings 里 Squash 默认 message 选 **Pull request title**。细则在 `standard-spec-rules` → `ai-spec/coding/conventional-commits.md`（不要把整份 ai-spec 拷进本仓）。
 
 条目示例：
 

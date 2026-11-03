@@ -1,7 +1,10 @@
 # 复制到业务仓 .github/pull_request_template.md
 # 与 append-changelog.yml 配套：CI 提取 ## Changelog 段落写入 changelog.md
-# Commit message 须符合 Conventional Commits：type(scope): subject
-# （业务仓由 .githooks/commit-msg 校验；细则见 ai-spec/coding/conventional-commits.md）
+#
+# 强制 squash 合 main 时：
+#   - PR 标题必须是 type(scope): subject（由 require-pr-title 校验；标题即进 main 的 commit）
+#   - 正文 Summary/Changelog 写人话即可
+# 细则：ai-spec/coding/conventional-commits.md
 
 ## Summary
 
@@ -29,6 +32,7 @@
 
 <!-- 真源：standard-spec-rules/ai-spec/；业务仓 sync 后也会合并本段 -->
 
+- [ ] **PR 标题**符合 `type(scope): subject`（squash 后进 main；见 `coding/conventional-commits.md`）
 - [ ] 符合 `ai-spec/AGENTS.md` 及适用规范
 - [ ] 逻辑阶段有空行、无压缩语句；必要语义注释完整，符合 `coding/code-readability-and-style.md`
 - [ ] 无假想扩展点、无意义包装类或转发链，符合 `coding/simple-design.md`
@@ -37,7 +41,6 @@
 - [ ] 核心业务（流水线/编排 Service）：类头、分块、入口语义注释已补全（若适用）
 - [ ] 业务逻辑变更有配套单元测试，且本地可跑（若适用）
 - [ ] 若改 Gateway 读 body Filter：未新增 join+release 共享 Netty buffer；优先 `cacheRequestBody`（见 `ai-spec/coding/gateway-request-body-caching.md`）
-- [ ] Commit message 符合 `type(scope): subject`（见 `ai-spec/coding/conventional-commits.md`）
 
 ## Test plan
 
