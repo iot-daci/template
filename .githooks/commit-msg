@@ -1,0 +1,67 @@
+#!/bin/sh
+# Conventional Commits 校验（纯 shell，与语言无关）。
+# 格式：type(scope): subject
+# 真源：standard-spec-rules/scripts/git-hooks/commit-msg
+
+set -eu
+
+commit_msg_file="${1:-}"
+if [ -z "$commit_msg_file" ] || [ ! -f "$commit_msg_file" ]; then
+  echo "commit-msg: missing commit message file" >&2
+  exit 1
+fi
+
+header=$(head -n 1 "$commit_msg_file" | tr -d '\r')
+
+# 空提交由 git 自己拒绝；此处放行避免重复报错
+if [ -z "$header" ]; then
+  exit 0
+fi
+
+# 放行 Git / 合并机器人常见自动文案
+case "$header" in
+  Merge\ *|Revert\ *|fixup!\ *|squash!\ *|Auto-merge:*)
+    exit 0
+    ;;
+esac
+
+# type(scope): subject —— scope 必填；允许 feat(x)!: breaking
+pattern='^(feat|fix|docs|style|refactor|perf|test|build|ci|chore|revert)\([a-z0-9][a-z0-9._/-]*\)(!)?: .+'
+
+if ! printf '%s\n' "$header" | grep -Eq "$pattern"; then
+  cat >&2 <<EOF
+commit-msg: 提交说明不符合 Conventional Commits。
+
+期望格式:
+  type(scope): subject
+
+示例:
+  feat(card): ppShareCardApi 支持共享预算，共享卡回调金额加回手续费。
+  fix(payment): 修复取消支付幂等校验
+  chore(changelog): com.lz.vcard.admin-portal@20261102085201
+
+允许的 type:
+  feat fix docs style refactor perf test build ci chore revert
+
+规则:
+  - scope 必填，小写字母开头，可含 a-z 0-9 . _ / -
+  - type 与 scope 后必须是 ": "（冒号+空格）再写 subject
+  - subject 不能为空
+  - 破坏性变更可用 type(scope)!: subject
+
+当前首行:
+  $header
+
+详见: ai-spec/coding/conventional-commits.md
+EOF
+  exit 1
+fi
+
+max_len=120
+header_len=$(printf '%s' "$header" | wc -c | tr -d ' ')
+if [ "$header_len" -gt "$max_len" ]; then
+  echo "commit-msg: 首行过长（${header_len} > ${max_len}），请缩短 subject" >&2
+  exit 1
+fi
+
+exit 0

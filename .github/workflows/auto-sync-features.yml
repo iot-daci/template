@@ -434,7 +434,7 @@ jobs:
               echo "git status"
               echo "# 编辑冲突文件..."
               echo "git add <冲突文件>"
-              echo 'git commit -m "Resolve merge conflicts with feature-xxx"'
+              echo 'git commit -m "chore(merge): resolve conflicts with feature-xxx"'
               echo "git push origin ${TARGET_BRANCH}"
               echo '```'
               echo ""

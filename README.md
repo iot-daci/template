@@ -98,6 +98,16 @@ sudo chown -R <runner-user>:<runner-user> /home/<runner-user>/actions-runner/_wo
 
 不需要写 changelog 时传入 `generate_changelog: false`。
 
+**CI 自动提交说明**（与业务仓 Conventional Commits / `.githooks/commit-msg` 对齐）：
+
+| 来源 | 提交首行 |
+|------|----------|
+| `append-changelog.yml` | `chore(changelog): <service>@<version>` |
+| `auto-sync-features.yml` 合并 | `Auto-merge: <branch> → <target>`（hook 已放行此前缀） |
+| 人工解决 auto-sync 冲突（文档示例） | `chore(merge): resolve conflicts with feature-xxx` |
+
+业务仓本地提交须为 `type(scope): subject`；细则在 `standard-spec-rules` → `ai-spec/coding/conventional-commits.md`（不要把整份 ai-spec 拷进本仓）。
+
 条目示例：
 
 ```markdown
