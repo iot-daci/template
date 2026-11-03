@@ -1,5 +1,5 @@
 name: Require PR Title
-description: Fail if PR title is not Conventional Commits type(scope): subject (squash 进 main 时用标题)
+description: "Fail if PR title is not Conventional Commits type(scope): subject (squash into main)"
 
 runs:
   using: composite
