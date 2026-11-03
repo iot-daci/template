@@ -14,7 +14,6 @@ on:
       docker_image:
         type: string
         required: true
-      # Optional env for product build.sh (e.g. openapi-doc white-label BRAND=dajinniao)
       brand:
         type: string
         required: false
@@ -45,79 +44,22 @@ jobs:
       NPM_CONFIG_USERCONFIG: /root/.npmrc
       NPM_AUTH_TOKEN: ${{ secrets.NPM_AUTH_TOKEN }}
       NPM_REGISTRY: https://packages.aliyun.com/637eea4f126bcb821717c7ff/npm/npm-registry/
-      # 与 devenv/js 约定一致：npm cache / pnpm store / npx 都走 /root/.npm，供 actions/cache 命中
       npm_config_cache: /root/.npm
       npm_config_store_dir: /root/.npm
     steps:
-
-      # 拉取代码
       - name: Checkout source
         uses: actions/checkout@v7
-      
-      # 记录构建开始时间
-      - name: Record build start time
-        run: echo "BUILD_START_TIME=$(date +%s)" >> $GITHUB_ENV
 
-      - name: Resolve docker image
-        id: docker_image
-        uses: iot-daci/template/.github/actions/resolve-docker-image@ghcr
+      - name: Docker build prep
+        id: prep
+        uses: iot-daci/template/.github/actions/docker-build-prep@ghcr
         with:
           docker_image: ${{ inputs.docker_image }}
           repository_owner: ${{ github.repository_owner }}
+          registry_token: ${{ secrets.GH_TOKEN }}
 
-      - name: Login to GHCR
-        if: steps.docker_image.outputs.use_ghcr == 'true'
-        uses: docker/login-action@v4
-        with:
-          registry: ghcr.io
-          username: ${{ github.repository_owner }}
-          password: ${{ secrets.GH_TOKEN }}
-
-      - name: Login to container registry
-        if: steps.docker_image.outputs.use_ghcr != 'true'
-        uses: docker/login-action@v4
-        with:
-          registry: ${{ steps.docker_image.outputs.registry }}
-          username: ${{ env.DOCKER_USERNAME }}
-          password: ${{ env.DOCKER_PASSWORD }}
-
-      # 获取当前时间戳
-      - name: Get timestamp
-        id: timestamp
-        run: |
-          TIMESTAMP=$(date +'%Y%m%d%H%M%S')
-          echo "Build timestamp: $TIMESTAMP"
-          echo "TIMESTAMP=$TIMESTAMP" >> $GITHUB_ENV
-          echo "value=$TIMESTAMP" >> "$GITHUB_OUTPUT"
-
-      # docker meta
-      - name: Docker meta
-        id: meta
-        uses: docker/metadata-action@v6
-        with:
-          images: |
-            ${{ env.IMAGE }}
-          tags: |
-            type=raw,value=${{ env.IMAGE_TAG }}
-            type=ref,event=branch
-            type=ref,event=pr
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
-            type=sha
-            type=raw,value=${{ steps.timestamp.outputs.value }}
-
-      # 设置qemu
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v4
-
-      # 设置docker buildx配置
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v4
-
-      # 缓存 npm / pnpm / yarn 共用目录（build.sh 已切 pnpm，不能再按 yarn cache dir + yarn.lock）
       - name: Cache JS dependencies
         uses: actions/cache@v6
-        id: js-cache
         with:
           path: /root/.npm
           key: ${{ runner.os }}-js-${{ inputs.docker_image }}-${{ hashFiles('**/pnpm-lock.yaml', '**/package-lock.json', '**/yarn.lock') }}
@@ -125,15 +67,14 @@ jobs:
             ${{ runner.os }}-js-${{ inputs.docker_image }}-
             ${{ runner.os }}-js-
 
-      # 获取Node版本
       - name: Get Node version
         id: node-version
         run: |
           NODE_VERSION=$(node --version)
           echo "Node version: $NODE_VERSION"
-          echo "NODE_VERSION=$NODE_VERSION" >> $GITHUB_ENV
+          echo "NODE_VERSION=$NODE_VERSION" >> "$GITHUB_ENV"
+          echo "value=$NODE_VERSION" >> "$GITHUB_OUTPUT"
 
-      # 初始化 npm（优先 NPM_AUTH_TOKEN secret，否则用镜像内 /tmp/.e）
       - name: Init builder env
         run: init_env.sh
 
@@ -156,89 +97,39 @@ jobs:
               > /root/.npmrc
             echo "Configured npm registry auth"
           fi
-          # init_env.sh 写过 store-dir，但上面覆盖 .npmrc 会丢掉；npx pnpm 必须读到这项才会复用缓存
           pnpm config set store-dir /root/.npm >/dev/null 2>&1 || true
           npm config set cache /root/.npm >/dev/null 2>&1 || true
 
-      # 编译包
       - name: Build package
         env:
           BRAND: ${{ inputs.brand }}
         run: cd ${{ inputs.workdir }} && sh build.sh
 
-      # 编译docker镜像
       - name: Build and push docker
-        uses: docker/build-push-action@v7
+        uses: iot-daci/template/.github/actions/docker-build-push@ghcr
         with:
           context: ${{ inputs.docker_context }}
-          platforms: linux/amd64
-          build-args: |
+          build_args: |
             BRAND=${{ inputs.brand }}
-          # inline：缓存随镜像 push 写入，无单独 cache export 步骤
-          cache-from: |
-            type=registry,ref=${{ env.IMAGE }}:${{ env.IMAGE_TAG }}
-            type=registry,ref=${{ env.IMAGE }}:${{ env.CACHE_TAG_FALLBACK }}
-          cache-to: type=inline
-          push: ${{ github.event_name != 'pull_request' }}
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          provenance: false
-          sbom: false
+          tags: ${{ steps.prep.outputs.tags }}
+          labels: ${{ steps.prep.outputs.labels }}
 
       - name: Summary
         if: always()
-        env:
-          DOCKER_TAGS: ${{ steps.meta.outputs.tags }}
-          JOB_STATUS: ${{ job.status }}
-        run: |
-          BUILD_END_TIME=$(date +%s)
-          BUILD_DURATION=$((BUILD_END_TIME - ${{ env.BUILD_START_TIME }}))
-          BUILD_MINUTES=$((BUILD_DURATION / 60))
-          BUILD_SECONDS=$((BUILD_DURATION % 60))
+        uses: iot-daci/template/.github/actions/build-job-summary@ghcr
+        with:
+          docker_tags: ${{ steps.prep.outputs.tags }}
+          build_version: ${{ steps.prep.outputs.version }}
+          job_status: ${{ job.status }}
+          extra_lines: "- Node Version: `${{ steps.node-version.outputs.value }}`"
 
-          if [ "$JOB_STATUS" = "success" ]; then
-            echo "## 🎉 Build Summary" >> $GITHUB_STEP_SUMMARY
-            echo "" >> $GITHUB_STEP_SUMMARY
-            echo "✅ Application built successfully!" >> $GITHUB_STEP_SUMMARY
-          else
-            echo "## ❌ Build Summary" >> $GITHUB_STEP_SUMMARY
-            echo "" >> $GITHUB_STEP_SUMMARY
-            echo "❌ Build failed!" >> $GITHUB_STEP_SUMMARY
-          fi
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**Build Info:**" >> $GITHUB_STEP_SUMMARY
-          echo "- Commit: \`${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
-          echo "- Ref: \`${{ github.ref }}\`" >> $GITHUB_STEP_SUMMARY
-          echo "- Node Version: \`${{ env.NODE_VERSION }}\`" >> $GITHUB_STEP_SUMMARY
-          echo "- Architecture: \`$(uname -m)\`" >> $GITHUB_STEP_SUMMARY
-          echo "- Duration: \`${BUILD_MINUTES}m ${BUILD_SECONDS}s\`" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          if [ "$JOB_STATUS" = "success" ]; then
-            echo "**Artifacts:**" >> $GITHUB_STEP_SUMMARY
-            if [ -n "$DOCKER_TAGS" ]; then
-              echo "$DOCKER_TAGS" | while read -r tag; do
-                if [ -n "$tag" ]; then
-                  echo "- Docker Image: \`$tag\`" >> $GITHUB_STEP_SUMMARY
-                fi
-              done
-            fi
-            echo "" >> $GITHUB_STEP_SUMMARY
-            echo "📦 Download artifacts from the Actions tab." >> $GITHUB_STEP_SUMMARY
-          fi
-
-      # self-hosted + container：容器 root 写入 workspace，改回 runner 用户，避免下次 checkout EACCES
       - name: Fix workspace permissions
-        if: always() && runner.environment == 'self-hosted'
-        run: |
-          if [ -z "${RUNNER_UID:-}" ] || [ -z "${RUNNER_GID:-}" ]; then
-            echo "::warning::RUNNER_UID/RUNNER_GID not set in actions-runner .env — skip chown (see template/README.md)"
-            exit 0
-          fi
-          chown -R "${RUNNER_UID}:${RUNNER_GID}" "$GITHUB_WORKSPACE"
+        if: always()
+        uses: iot-daci/template/.github/actions/fix-workspace-permissions@ghcr
 
     outputs:
-      version: ${{ steps.timestamp.outputs.value }}
-      registry_image: ${{ steps.docker_image.outputs.image }}
+      version: ${{ steps.prep.outputs.version }}
+      registry_image: ${{ steps.prep.outputs.registry_image }}
 
   notify-image:
     name: Notify image

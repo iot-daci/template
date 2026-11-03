@@ -1,0 +1,46 @@
+name: Docker build and push
+description: 标准 linux/amd64 build-push（registry inline cache）
+
+inputs:
+  context:
+    description: Docker build context
+    required: true
+  file:
+    description: Dockerfile 路径；空则用 context/Dockerfile
+    required: false
+    default: ""
+  build_args:
+    description: 传给 build-push-action 的 build-args（多行）
+    required: false
+    default: ""
+  tags:
+    description: 镜像 tags（通常来自 docker-build-prep / metadata-action）
+    required: true
+  labels:
+    description: 镜像 labels
+    required: false
+    default: ""
+  platforms:
+    description: 目标平台
+    required: false
+    default: "linux/amd64"
+
+runs:
+  using: composite
+  steps:
+    - name: Build and push docker
+      uses: docker/build-push-action@v7
+      with:
+        context: ${{ inputs.context }}
+        file: ${{ inputs.file != '' && inputs.file || format('{0}/Dockerfile', inputs.context) }}
+        platforms: ${{ inputs.platforms }}
+        build-args: ${{ inputs.build_args }}
+        cache-from: |
+          type=registry,ref=${{ env.IMAGE }}:${{ env.IMAGE_TAG }}
+          type=registry,ref=${{ env.IMAGE }}:${{ env.CACHE_TAG_FALLBACK }}
+        cache-to: type=inline
+        push: ${{ github.event_name != 'pull_request' }}
+        tags: ${{ inputs.tags }}
+        labels: ${{ inputs.labels }}
+        provenance: false
+        sbom: false

@@ -16,6 +16,11 @@ GitHub Actions 可复用 workflow 模板库。业务仓库通过 `workflow_call`
 | `actions/js-unit-test` | JS 单测（pnpm/npm/yarn） |
 | `actions/go-unit-test` | Go 单测（`go test ./...`） |
 | `actions/java-spotbugs` | SpotBugs（可选；默认不挂在 unit-tests 上） |
+| `actions/resolve-docker-image` | 解析 registry / 镜像名 / tag |
+| `actions/docker-build-prep` | 登录 registry、timestamp、metadata、QEMU/Buildx |
+| `actions/docker-build-push` | 标准 build-push（inline registry cache） |
+| `actions/build-job-summary` | 构建 Job Summary |
+| `actions/fix-workspace-permissions` | self-hosted container chown workspace |
 | `docker.yml` | Docker 镜像构建；**main 构建成功后**追加 `changelog.md` |
 | `npm-publish.yml` | npm 包发布（pnpm monorepo，阿里云私服） |
 | `cpp.yml` | C++ 构建与 Docker 镜像；**main 构建成功后**追加 `changelog.md` |

@@ -1,0 +1,81 @@
+name: Build job summary
+description: 写入 GITHUB_STEP_SUMMARY（耗时、commit、镜像 tags）
+
+inputs:
+  docker_tags:
+    description: 镜像 tags（多行）
+    required: false
+    default: ""
+  build_version:
+    description: 版本/时间戳；可空
+    required: false
+    default: ""
+  job_status:
+    description: job.status
+    required: true
+  success_headline:
+    description: 成功时的一句话
+    required: false
+    default: "Application built successfully!"
+  extra_lines:
+    description: 追加到 Build Info 的 markdown 行（已含前缀 "- " 或整行）
+    required: false
+    default: ""
+
+runs:
+  using: composite
+  steps:
+    - name: Summary
+      shell: bash
+      env:
+        DOCKER_TAGS: ${{ inputs.docker_tags }}
+        BUILD_VERSION: ${{ inputs.build_version }}
+        JOB_STATUS: ${{ inputs.job_status }}
+        SUCCESS_HEADLINE: ${{ inputs.success_headline }}
+        EXTRA_LINES: ${{ inputs.extra_lines }}
+        GIT_SHA: ${{ github.sha }}
+        GIT_REF: ${{ github.ref }}
+      run: |
+        set -euo pipefail
+        BUILD_END_TIME=$(date +%s)
+        START="${BUILD_START_TIME:-$BUILD_END_TIME}"
+        BUILD_DURATION=$((BUILD_END_TIME - START))
+        BUILD_MINUTES=$((BUILD_DURATION / 60))
+        BUILD_SECONDS=$((BUILD_DURATION % 60))
+
+        {
+          if [ "$JOB_STATUS" = "success" ]; then
+            echo "## Build Summary"
+            echo ""
+            echo "✅ ${SUCCESS_HEADLINE}"
+          else
+            echo "## Build Summary"
+            echo ""
+            echo "❌ Build failed!"
+          fi
+          echo ""
+          echo "**Build Info:**"
+          echo "- Commit: \`${GIT_SHA}\`"
+          echo "- Ref: \`${GIT_REF}\`"
+          echo "- Architecture: \`$(uname -m)\`"
+          echo "- Duration: \`${BUILD_MINUTES}m ${BUILD_SECONDS}s\`"
+          if [ -n "${BUILD_VERSION}" ]; then
+            echo "- Version: \`${BUILD_VERSION}\`"
+          fi
+          if [ -n "${EXTRA_LINES}" ]; then
+            printf '%s\n' "${EXTRA_LINES}"
+          fi
+          echo ""
+          if [ "$JOB_STATUS" = "success" ]; then
+            echo "**Artifacts:**"
+            if [ -n "${DOCKER_TAGS}" ]; then
+              printf '%s\n' "${DOCKER_TAGS}" | while IFS= read -r tag; do
+                if [ -n "$tag" ]; then
+                  echo "- Docker Image: \`$tag\`"
+                fi
+              done
+            fi
+            echo ""
+            echo "Download artifacts from the Actions tab."
+          fi
+        } >>"$GITHUB_STEP_SUMMARY"
