@@ -31,9 +31,8 @@ jobs:
     name: Notify image
     runs-on: ubuntu-latest
     if: ${{ github.ref_name == inputs.target_branch }}
-    permissions:
-      contents: read
-      pull-requests: write
+    # 评论走 secrets.GH_TOKEN（PAT），不要在此声明 pull-requests: write：
+    # 嵌套 reusable workflow 不能超出上层 caller 已授予的权限（否则校验失败）。
     steps:
       - name: Require GH_TOKEN
         env:
