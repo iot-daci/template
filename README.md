@@ -12,7 +12,6 @@ GitHub Actions 可复用 workflow 模板库。业务仓库通过 `workflow_call`
 | `notify-image.yml` | 构建后在关联 PR 评论 Docker 镜像 tag（由 java/js/docker 等调用；不再写 changelog.md） |
 | `actions/validate-pr` | 一次校验 PR 标题（`type(scope): subject`）+ 非空 `## Changelog`；Ruleset 勾 **`PR Check`** |
 | **`unit-tests.yml`** | **PR 单测**（可复用）：`language=java\|js\|go`；只应由 PR→main caller 调用 |
-| `code-quality.yml` | **已弃用**；`kind=server` 时转调 `unit-tests.yml`（language=java） |
 | `actions/java-unit-test` | Java 单测 + JaCoCo |
 | `actions/js-unit-test` | JS 单测（pnpm/npm/yarn） |
 | `actions/go-unit-test` | Go 单测（`go test ./...`） |

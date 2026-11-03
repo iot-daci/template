@@ -1,4 +1,4 @@
-# 复制到业务仓 .github/workflows/unit-tests-check.yml（或保留旧文件名 code-quality-check.yml）
+# 复制到业务仓 .github/workflows/unit-tests-check.yml
 # 只在 PR → main 触发；分支保护 / Ruleset 只勾「Code Quality Gate」
 # 不要挂在 feature push 的打包流水线上。
 

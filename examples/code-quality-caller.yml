@@ -1,4 +1,0 @@
-# DEPRECATED：请改用 unit-tests-caller.yml
-# 本文件仅作迁移提示；Ruleset 仍勾「Code Quality Gate」。
-
-# → examples/unit-tests-caller.yml
