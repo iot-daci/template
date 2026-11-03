@@ -1,0 +1,119 @@
+name: Validate PR
+description: "Validate PR title (Conventional Commits) and non-empty ## Changelog"
+
+runs:
+  using: composite
+  steps:
+    - name: Validate PR title and changelog
+      shell: bash
+      env:
+        TITLE: ${{ github.event.pull_request.title }}
+        BODY: ${{ github.event.pull_request.body }}
+        DRAFT: ${{ github.event.pull_request.draft }}
+      run: |
+        set -euo pipefail
+        python3 <<'PY'
+        import os
+        import re
+        import sys
+
+        title = (os.environ.get("TITLE") or "").strip()
+        body = os.environ.get("BODY") or ""
+        draft = (os.environ.get("DRAFT") or "").lower() == "true"
+        errors = []
+
+        # --- 1. PR title (draft 跳过) ---
+        if draft:
+            print("Draft PR：跳过标题格式校验")
+        else:
+            if not title:
+                errors.append("PR title is empty. Use: type(scope): subject")
+            else:
+                pattern = re.compile(
+                    r"^(feat|fix|docs|style|refactor|perf|test|build|ci|chore|revert)"
+                    r"\([a-z0-9][a-z0-9._/-]*\)(!)?: .+"
+                )
+                if not pattern.match(title):
+                    errors.append(
+                        "PR title must be Conventional Commits: type(scope): subject\n"
+                        f"Current title: {title}\n"
+                        "Examples:\n"
+                        "  feat(card): ppShareCardApi 支持共享预算\n"
+                        "  fix(payment): 修复取消支付幂等校验\n"
+                        "Rules: scope required; lowercase type/scope; ': ' before subject."
+                    )
+                elif len(title.encode("utf-8")) > 120:
+                    errors.append(
+                        f"PR title too long ({len(title.encode('utf-8'))} > 120 bytes)"
+                    )
+                else:
+                    print(f"OK: PR title = {title}")
+
+        # --- 2. ## Changelog ---
+        if not body.strip():
+            errors.append(
+                "PR body is empty. Add a ## Changelog section "
+                "(see .github/pull_request_template.md)."
+            )
+        elif not re.search(r"(?im)^##\s+changelog\s*$", body):
+            errors.append(
+                "Missing '## Changelog' heading in PR description.\n"
+                "CI appends this section to changelog.md after merge to main."
+            )
+        else:
+            lines = body.splitlines()
+            collecting = False
+            section = []
+            for line in lines:
+                if re.match(r"(?i)^##\s+changelog\s*$", line):
+                    collecting = True
+                    continue
+                if collecting and re.match(r"^##\s+", line):
+                    break
+                if collecting:
+                    section.append(line)
+
+            text = "\n".join(section)
+            text = re.sub(r"<!--.*?-->", "", text, flags=re.S)
+            clean = "\n".join(
+                ln.strip() for ln in text.splitlines() if ln.strip()
+            ).strip()
+
+            if not clean:
+                errors.append(
+                    "## Changelog section is empty. "
+                    "Write release notes (or '无对外变更' / internal only)."
+                )
+            elif clean in {"-", "- -", "-\n-"} or re.fullmatch(r"-\s*", clean):
+                errors.append(
+                    "## Changelog still has the template placeholder '-'. "
+                    "Replace it with real notes."
+                )
+            else:
+                print("OK: ## Changelog present")
+                print("\n".join(clean.splitlines()[:20]))
+
+        summary = os.environ.get("GITHUB_STEP_SUMMARY")
+        if summary:
+            with open(summary, "a", encoding="utf-8") as fh:
+                fh.write("## PR Check\n\n")
+                if draft:
+                    fh.write("- title: skipped (draft)\n")
+                elif title and not any("PR title" in e for e in errors):
+                    fh.write(f"- title: `{title}`\n")
+                if not any("Changelog" in e or "PR body" in e for e in errors):
+                    fh.write("- changelog: ok\n")
+                if errors:
+                    fh.write("\n**Failed**\n\n")
+                    for err in errors:
+                        fh.write(f"- {err.splitlines()[0]}\n")
+
+        if errors:
+            for err in errors:
+                for line in err.splitlines():
+                    print(f"::error::{line}")
+                print("")
+            sys.exit(1)
+
+        print("OK: PR Check passed")
+        PY

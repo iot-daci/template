@@ -1,0 +1,15 @@
+# 兼容入口：逻辑在 .github/actions/validate-pr
+# 业务仓请用 examples/validate-pr-caller.yml（本地 job + composite action）
+# Ruleset 勾「PR Check」
+
+name: PR Check
+
+on:
+  workflow_call:
+
+jobs:
+  check:
+    name: PR Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: iot-daci/template/.github/actions/validate-pr@ghcr

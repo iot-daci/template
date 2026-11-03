@@ -2,8 +2,8 @@
 # 与 append-changelog.yml 配套：CI 提取 ## Changelog 段落写入 changelog.md
 #
 # 强制 squash 合 main 时：
-#   - PR 标题必须是 type(scope): subject（由 require-pr-title 校验；标题即进 main 的 commit）
-#   - 正文 Summary/Changelog 写人话即可
+#   - PR 标题必须是 type(scope): subject（validate-pr / PR Check；标题即进 main 的 commit）
+#   - 正文须有非空 ## Changelog；Summary 写人话即可
 # 细则：ai-spec/coding/conventional-commits.md
 
 ## Summary

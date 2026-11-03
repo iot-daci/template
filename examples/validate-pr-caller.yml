@@ -1,0 +1,22 @@
+# 复制到业务仓 .github/workflows/validate-pr.yml
+# 一次校验：PR 标题（Conventional Commits）+ 非空 ## Changelog
+# Ruleset / Branch protection 勾选「PR Check」（可替换原先的 PR Changelog / PR Title）
+
+name: PR Check
+
+on:
+  pull_request:
+    types: [opened, edited, synchronize, reopened, ready_for_review]
+    branches:
+      - main
+
+concurrency:
+  group: pr-check-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: PR Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: iot-daci/template/.github/actions/validate-pr@ghcr
