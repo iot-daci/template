@@ -23,7 +23,7 @@ on:
         default: "main"
     secrets:
       GH_TOKEN:
-        description: 用于查找关联 PR 并发表/更新评论（需 pull-requests: write）
+        description: "用于查找关联 PR 并发表/更新评论（需 pull-requests write）"
         required: true
 
 jobs:
