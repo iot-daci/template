@@ -1,14 +1,38 @@
-# 复制到业务仓 .github/pull_request_template.md
-# 与 append-changelog.yml 配套：CI 提取 ## Changelog 段落写入 changelog.md
-#
-# 强制 squash 合 main 时：
-#   - PR 标题必须是 type(scope): subject（validate-pr / PR Check；标题即进 main 的 commit）
-#   - 正文须有非空 ## Changelog；Summary 写人话即可
-# 细则：ai-spec/coding/conventional-commits.md
+# 复制到业务仓 .github/pull_request_template.md（真源也可 sync 自 standard-spec-rules/ai-spec/snippets/）
+# 与 append-changelog.yml / validate-pr（PR Check）配套
+
+<!--
+【PR 标题】强制 squash 合 main 时，标题 = 进 main 的 commit，必须为：
+
+  type(scope): subject
+
+允许的 type（选一个）：
+  feat      新功能
+  fix       缺陷修复（含 hotfix）
+  refactor  重构（无行为变化）
+  chore     杂务（依赖、changelog、工具、非功能改动等）
+  docs      文档
+  test      测试
+  perf      性能
+  ci        CI 配置
+  build     构建 / 打包
+  style     纯格式（不影响逻辑）
+  revert    回滚
+
+示例：
+  feat(card): ppShareCardApi 支持共享预算
+  fix(payment): 修复取消支付幂等校验
+  chore(mybatis): 逻辑删除补 delete_ts
+  docs(readme): 补充部署说明
+
+规则：scope 必填、小写；type(scope): 后有空格再写 subject。
+CI job「PR Check」会校验标题 + 下方 ## Changelog。
+细则：ai-spec/coding/conventional-commits.md
+-->
 
 ## Summary
 
-<!-- 一句话说明这个 PR 做什么、为什么做 -->
+<!-- 一句话说明这个 PR 做什么、为什么做（人话即可，不必套 type(scope)） -->
 
 ## Changelog
 
@@ -20,19 +44,11 @@
 
 -
 
-## Type of change
-
-- [ ] Feature
-- [ ] Bug fix
-- [ ] Refactor / chore
-- [ ] Docs only
-- [ ] Hotfix / hotfix
-
 ## AI / 编码规范自检
 
 <!-- 真源：standard-spec-rules/ai-spec/；业务仓 sync 后也会合并本段 -->
 
-- [ ] **PR 标题**符合 `type(scope): subject`（squash 后进 main；见 `coding/conventional-commits.md`）
+- [ ] **PR 标题**已按文件顶部注释写成 `type(scope): subject`（squash 后进 main）
 - [ ] 符合 `ai-spec/AGENTS.md` 及适用规范
 - [ ] 逻辑阶段有空行、无压缩语句；必要语义注释完整，符合 `coding/code-readability-and-style.md`
 - [ ] 无假想扩展点、无意义包装类或转发链，符合 `coding/simple-design.md`
