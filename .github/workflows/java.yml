@@ -15,13 +15,13 @@ on:
         type: string
         required: true
       generate_changelog:
-        description: main 构建成功后是否追加 changelog.md
+        description: main 构建成功后是否在关联 PR 评论 Docker 镜像 tag（兼容旧名；不再写 changelog.md）
         type: boolean
         required: false
         default: true
     secrets:
       GH_TOKEN:
-        description: GHCR 推送与写回 changelog.md（需 write:packages + contents）
+        description: GHCR 推送与 PR 镜像评论（需 write:packages；评论需 pull-requests）
         required: true
 
 jobs:
@@ -201,11 +201,11 @@ jobs:
       version: ${{ steps.timestamp.outputs.value }}
       registry_image: ${{ steps.docker_image.outputs.image }}
 
-  changelog:
-    name: Changelog
+  notify-image:
+    name: Notify image
     needs: build
     if: ${{ success() && github.ref_name == 'main' && inputs.generate_changelog }}
-    uses: ./.github/workflows/append-changelog.yml
+    uses: ./.github/workflows/notify-image.yml
     with:
       service_name: ${{ inputs.docker_image }}
       image_version: ${{ needs.build.outputs.version }}

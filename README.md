@@ -9,7 +9,7 @@ GitHub Actions 可复用 workflow 模板库。业务仓库通过 `workflow_call`
 | `java.yml` / `java-17.yml` | Java 应用构建与 Docker 镜像；**main 构建成功后**追加 `changelog.md` |
 | `java-lib.yml` / `java-lib-17.yml` | Java 库构建与部署 |
 | `js.yml` | 前端构建与 Docker 镜像；**main 构建成功后**追加 `changelog.md` |
-| `append-changelog.yml` | 构建后写 changelog（由 java/js/docker 等调用）：查关联已合并 PR → prepend → push |
+| `notify-image.yml` | 构建后在关联 PR 评论 Docker 镜像 tag（由 java/js/docker 等调用；不再写 changelog.md） |
 | `actions/validate-pr` | 一次校验 PR 标题（`type(scope): subject`）+ 非空 `## Changelog`；Ruleset 勾 **`PR Check`** |
 | **`code-quality.yml`** | **代码质量检查**（可复用）：`kind=server` 时并行调 `actions/java-unit-test` + `actions/java-spotbugs` |
 | `actions/java-unit-test` | Java 单测 + JaCoCo（供 code-quality 等调用） |
@@ -88,48 +88,43 @@ RUNNER_GID=1001   # id -g <runner-user>
 sudo chown -R <runner-user>:<runner-user> /home/<runner-user>/actions-runner/_work
 ```
 
-## Build 后 Changelog（main）
+## Build 后镜像通知（main）
 
-`java.yml` / `java-17.yml` / `js.yml` / `docker.yml` / `cpp.yml` 在 **build 成功、当前分支为 `main`，且 `generate_changelog` 为 true（默认）** 时，会调用 `append-changelog.yml`：
+`java.yml` / `java-17.yml` / `js.yml` / `docker.yml` / `cpp.yml` 在 **build 成功、当前分支为 `main`，且 `generate_changelog` 为 true（默认；兼容旧参数名）** 时，会调用 `notify-image.yml`：
 
-1. 用 merge commit / SHA 查找关联已合并 PR
-2. **只提取** PR 正文中的 `## Changelog` 段落（去掉 HTML 注释；不回退成整份 PR 模板）
-3. 写成简洁条目 prepend 到仓库根目录 `changelog.md` 并 push
+1. 用 merge commit / SHA 查找关联已合并 PR  
+2. 在该 PR 下发表（或更新）一条 **sticky 评论**，写明完整镜像名 / tag / `docker pull`  
+3. 同时写入 Actions **Job Summary**（无关联 PR 时至少还有 Summary）
 
-不需要写 changelog 时传入 `generate_changelog: false`。
+**不再**往仓库 `changelog.md` 自动 commit。
 
-**CI 自动提交说明**（与业务仓 Conventional Commits / `.githooks/commit-msg` 对齐）：
+同一 PR 多服务构建：每个服务一条评论（marker `djn-image-bot:<service>`），重跑会更新对应评论。
+
+不需要通知时传入 `generate_changelog: false`。
+
+**其它 CI 提交说明**（与 Conventional Commits 对齐）：
 
 | 来源 | 提交首行 |
 |------|----------|
-| `append-changelog.yml` | `chore(changelog): <service>@<version>` |
-| `auto-sync-features.yml` 合并 | `Auto-merge: <branch> → <target>`（hook 已放行此前缀） |
+| `auto-sync-features.yml` 合并 | `Auto-merge: <branch> → <target>`（hook 已放行） |
 | 人工解决 auto-sync 冲突（文档示例） | `chore(merge): resolve conflicts with feature-xxx` |
 
-业务仓若 **强制 squash 合 main**：请把 **PR 标题**写成 `type(scope): subject`，并启用 `examples/validate-pr-caller.yml`（标题 + Changelog 一次校验）；仓库 Settings 里 Squash 默认 message 选 **Pull request title**。细则在 `standard-spec-rules` → `ai-spec/coding/conventional-commits.md`（不要把整份 ai-spec 拷进本仓）。
+业务仓若 **强制 squash 合 main**：PR 标题写成 `type(scope): subject`，启用 `examples/validate-pr-caller.yml`；Settings 里 Squash 默认 message 选 **Pull request title**。
 
-条目示例：
+评论示例：
 
 ```markdown
-## 2026-07-20 · `com.lz.vcard.admin-portal` · `20260720102407`
+### Docker image · `com.lz.vcard.admin-portal`
 
-**PR** [#201 · openapidoc no brand](https://github.com/org/repo/pull/201)
+| | |
+|---|---|
+| **Image** | `ghcr.io/iot-daci/com.lz.vcard.admin-portal:20260720102407` |
+| **Tag** | `20260720102407` |
 
-- openapi文档白牌
-
-<details>
-<summary>Image</summary>
-
-`ghcr.io/iot-daci/com.lz.vcard.admin-portal:20260720102407`
-
-</details>
-
----
+docker pull ghcr.io/iot-daci/com.lz.vcard.admin-portal:20260720102407
 ```
 
-并发：同一仓库 `main` 上写 changelog **串行**（`concurrency` + `cancel-in-progress: false`）；每次 push 前 `fetch` 最新 tip 再 prepend，失败最多重试 5 次（避免多服务同时构建互相抢文件）。
-
-打 Docker 镜像的模板（`java` / `java-17` / `js` / `docker` / `cpp`）在默认开启 changelog 时**必须**传入 `GH_TOKEN`；main 构建成功后会写 `changelog.md`，缺 token 则失败：
+打 Docker 镜像的模板在默认开启通知时**必须**传入 `GH_TOKEN`（推包 + 评 PR）：
 
 ```yaml
 jobs:
@@ -137,17 +132,18 @@ jobs:
     permissions:
       contents: read
       packages: write
+      pull-requests: write
     uses: iot-daci/template/.github/workflows/java-17.yml@ghcr
     with:
       workdir: server
       docker_context: server/vpay-starter
       docker_image: com.lz.vpay.server
-      # generate_changelog: false  # 可选，默认 true
+      # generate_changelog: false  # 可选，关闭 PR 镜像评论
     secrets:
       GH_TOKEN: ${{ secrets.GH_TOKEN }}
 ```
 
-PR 使用业务仓 `.github/pull_request_template.md`（示例：[examples/pull_request_template.md](examples/pull_request_template.md)），必须保留非空 `## Changelog`。
+PR 使用业务仓 `.github/pull_request_template.md`（示例：[examples/pull_request_template.md](examples/pull_request_template.md)），保留非空 `## Changelog`（给人读的发布说明；镜像看 PR 评论）。
 
 硬约束：业务仓接入 [examples/validate-pr-caller.yml](examples/validate-pr-caller.yml)（本地 job + `actions/validate-pr`），Ruleset 勾 **`PR Check`**（与 `Code Quality Gate` 并列）。校验 PR 标题（Conventional Commits）与非空 `## Changelog`；缺段落、空内容或仍是模板占位 `-` 时检查失败。
 

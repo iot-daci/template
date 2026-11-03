@@ -1,5 +1,5 @@
 # 复制到业务仓；真源：standard-spec-rules/ai-spec/snippets/pull_request_template.md
-# 配套：validate-pr（PR Check）+ append-changelog.yml
+# 配套：validate-pr（PR Check）+ notify-image.yml（构建后评论镜像）
 
 <!--
 【PR 标题】= 进 main 的 commit（强制 squash），必须：
@@ -16,9 +16,8 @@ scope 必填、小写。CI「PR Check」校验标题 + 下方 Changelog。
 ## Changelog
 
 <!--
-发布说明（写入 changelog.md），与标题分工不同：
-- 标题：给 git / 开发看的 type(scope): subject
-- 这里：给用户/运维看的变更说明；无对外影响写「无对外变更」
+发布说明（给人读）。镜像 tag 会在合入 main 构建成功后自动评论到本 PR，不必手写。
+无对外影响可写：无对外变更
 -->
 
 -

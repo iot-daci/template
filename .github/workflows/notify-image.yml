@@ -1,0 +1,148 @@
+name: Notify Docker image on associated PR
+
+on:
+  workflow_call:
+    inputs:
+      service_name:
+        description: 服务名（通常为 docker_image）
+        type: string
+        required: true
+      image_version:
+        description: 镜像 tag（build timestamp）
+        type: string
+        required: true
+      registry_image:
+        description: 完整镜像名（不含 tag），例如 ghcr.io/iot-daci/com.lz.vpay.server
+        type: string
+        required: false
+        default: ""
+      target_branch:
+        description: 仅该分支构建后通知（默认 main）
+        type: string
+        required: false
+        default: "main"
+    secrets:
+      GH_TOKEN:
+        description: 用于查找关联 PR 并发表/更新评论（需 pull-requests: write）
+        required: true
+
+jobs:
+  notify:
+    name: Notify image
+    runs-on: ubuntu-latest
+    if: ${{ github.ref_name == inputs.target_branch }}
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - name: Require GH_TOKEN
+        env:
+          GH_TOKEN: ${{ secrets.GH_TOKEN }}
+        run: |
+          if [ -z "${GH_TOKEN}" ]; then
+            echo "::error::GH_TOKEN is required to comment the built image on the associated PR"
+            exit 1
+          fi
+
+      - name: Comment image on associated PR
+        env:
+          GH_TOKEN: ${{ secrets.GH_TOKEN }}
+          SERVICE_NAME: ${{ inputs.service_name }}
+          IMAGE_VERSION: ${{ inputs.image_version }}
+          REGISTRY_IMAGE: ${{ inputs.registry_image }}
+          COMMIT_SHA: ${{ github.sha }}
+          REPO: ${{ github.repository }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+
+          PR_NUMBER=""
+          PR_JSON=$(gh api "repos/${REPO}/commits/${COMMIT_SHA}/pulls" \
+            -H "Accept: application/vnd.github.groot-preview+json" 2>/dev/null || echo "[]")
+          if [ "$(printf '%s' "$PR_JSON" | jq 'length')" -gt 0 ]; then
+            PR_NUMBER=$(printf '%s' "$PR_JSON" | jq -r '.[0].number')
+          else
+            SEARCH_JSON=$(gh pr list --repo "$REPO" --state merged --search "$COMMIT_SHA" --limit 1 \
+              --json number 2>/dev/null || echo "[]")
+            if [ "$(printf '%s' "$SEARCH_JSON" | jq 'length')" -gt 0 ]; then
+              PR_NUMBER=$(printf '%s' "$SEARCH_JSON" | jq -r '.[0].number')
+            fi
+          fi
+
+          if [ -n "${REGISTRY_IMAGE}" ]; then
+            FULL_IMAGE="${REGISTRY_IMAGE}:${IMAGE_VERSION}"
+          else
+            FULL_IMAGE="${SERVICE_NAME}:${IMAGE_VERSION}"
+          fi
+
+          SHORT_SHA="${COMMIT_SHA:0:7}"
+          MARKER="<!-- djn-image-bot:${SERVICE_NAME} -->"
+          export FULL_IMAGE SHORT_SHA MARKER
+
+          BODY_FILE=$(mktemp)
+          export BODY_PATH="$BODY_FILE"
+          python3 <<'PY'
+          import os
+          from pathlib import Path
+
+          path = Path(os.environ["BODY_PATH"])
+          path.write_text(
+              "\n".join(
+                  [
+                      os.environ["MARKER"],
+                      f"### Docker image · `{os.environ['SERVICE_NAME']}`",
+                      "",
+                      "| | |",
+                      "|---|---|",
+                      f"| **Image** | `{os.environ['FULL_IMAGE']}` |",
+                      f"| **Tag** | `{os.environ['IMAGE_VERSION']}` |",
+                      f"| **Commit** | `{os.environ['SHORT_SHA']}` |",
+                      f"| **Workflow** | [Actions run]({os.environ['RUN_URL']}) |",
+                      "",
+                      "```bash",
+                      f"docker pull {os.environ['FULL_IMAGE']}",
+                      "```",
+                      "",
+                  ]
+              ),
+              encoding="utf-8",
+          )
+          PY
+
+          {
+            echo "## Docker image"
+            echo ""
+            echo "| | |"
+            echo "|---|---|"
+            echo "| Service | \`${SERVICE_NAME}\` |"
+            echo "| Image | \`${FULL_IMAGE}\` |"
+            echo "| Tag | \`${IMAGE_VERSION}\` |"
+            echo "| Commit | \`${SHORT_SHA}\` |"
+            echo "| Workflow | [run](${RUN_URL}) |"
+            echo ""
+            echo '```bash'
+            echo "docker pull ${FULL_IMAGE}"
+            echo '```'
+          } >>"$GITHUB_STEP_SUMMARY"
+
+          if [ -z "$PR_NUMBER" ]; then
+            echo "::warning::No associated PR for ${COMMIT_SHA}; image recorded in Job Summary only"
+            echo "Image: ${FULL_IMAGE}"
+            exit 0
+          fi
+
+          EXISTING=$(gh api "repos/${REPO}/issues/${PR_NUMBER}/comments" --paginate \
+            --jq ".[] | select(.body | contains(\"${MARKER}\")) | .id" | head -n1)
+
+          BODY_CONTENT=$(cat "$BODY_FILE")
+          if [ -n "$EXISTING" ]; then
+            gh api -X PATCH "repos/${REPO}/issues/comments/${EXISTING}" \
+              -f body="$BODY_CONTENT" >/dev/null
+            echo "Updated sticky comment on PR #${PR_NUMBER} (comment ${EXISTING})"
+          else
+            gh api -X POST "repos/${REPO}/issues/${PR_NUMBER}/comments" \
+              -f body="$BODY_CONTENT" >/dev/null
+            echo "Created comment on PR #${PR_NUMBER}"
+          fi
+
+          echo "Image: ${FULL_IMAGE}"
