@@ -1,0 +1,24 @@
+name: Auto Sync Gray to Gray and Dev
+
+on:
+  workflow_call:
+    secrets:
+      GH_TOKEN:
+        required: true
+
+jobs:
+  # 两个目标独立同步；复用合并模板的目标分支锁，与 feature → dev 串行执行。
+  sync-gray:
+    strategy:
+      fail-fast: false
+      matrix:
+        target_branch: [gray, dev]
+    uses: ./.github/workflows/auto-sync-features.yml
+    with:
+      branch_pattern: gray-*
+      include_main: true
+      base_branch: main
+      target_branch: ${{ matrix.target_branch }}
+      require_pattern_branches: true
+    secrets:
+      GH_TOKEN: ${{ secrets.GH_TOKEN }}

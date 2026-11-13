@@ -1,9 +1,9 @@
 # 复制到业务仓 .github/workflows/auto-sync-gray.yml
-# gray-* push 时将 main + 所有 gray-* 合并到 gray，再 push gray 触发灰度编译
-# 无 gray-* 分支时 main 变更不同步到 gray
+# checkout / push 使用 GH_TOKEN（PAT），caller 无需 contents: write
 
-name: Auto Sync Gray to Gray
+name: Auto Sync Gray to Gray and Dev
 
+# main + gray-* 同步到 gray 和 dev；无 gray-* 时跳过两个目标。
 on:
   push:
     branches:
@@ -11,49 +11,7 @@ on:
       - "main"
 
 jobs:
-  should-sync-gray:
-    runs-on: ubicloud-standard-2
-    outputs:
-      sync: ${{ steps.decide.outputs.sync }}
-    steps:
-      - uses: actions/checkout@v7
-        with:
-          token: ${{ secrets.GH_TOKEN }}
-          fetch-depth: 0
-      - run: git fetch origin --prune
-      - id: decide
-        shell: bash
-        run: |
-          set -euo pipefail
-          REF="${{ github.ref_name }}"
-          if [[ "$REF" == gray-* ]]; then
-            echo "sync=true" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          mapfile -t GRAY_BRANCHES < <(
-            git for-each-ref --format='%(refname:short)' 'refs/remotes/origin/gray-*' \
-              | sed 's|^origin/||' || true
-          )
-          if ((${#GRAY_BRANCHES[@]} > 0)); then
-            echo "sync=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "sync=false" >> "$GITHUB_OUTPUT"
-          fi
-
   auto-sync-gray:
-    needs: should-sync-gray
-    if: |
-      needs.should-sync-gray.outputs.sync == 'true' &&
-      (github.ref_name != 'main' ||
-       (github.ref_name == 'main' &&
-        github.event.head_commit.message != 'Auto-merge: gray-' &&
-        !contains(github.event.head_commit.message, 'Merge pull request')))
-    uses: iot-daci/template/.github/workflows/auto-sync-features.yml@ghcr
-    with:
-      branch_pattern: gray-*
-      include_main: true
-      base_branch: main
-      target_branch: gray
-      require_pattern_branches: true
+    uses: iot-daci/template/.github/workflows/auto-sync-gray.yml@ghcr
     secrets:
       GH_TOKEN: ${{ secrets.GH_TOKEN }}

@@ -26,6 +26,7 @@ GitHub Actions 可复用 workflow 模板库。业务仓库通过 `workflow_call`
 | `cpp.yml` | C++ 构建与 Docker 镜像；**main 构建成功后**追加 `changelog.md` |
 | `artifact-zip.yml` | 产物打包 |
 | `auto-sync-features.yml` | 多 feature 分支合并到 dev（可配置 pattern、重建 dev） |
+| `auto-sync-gray.yml` | main + gray-* 分别合并到 gray 和 dev，无灰度分支则跳过 |
 | **`anxiaolong-scan.yml`** | **安小龙 AI 代码审计（打包源码 → 上传 → 轮询 → 下载结果 artifact）** |
 | **`claude-pr-review.yml`** | **PR Code Review（Claude，/review 触发，预先生成 diff 文件）** |
 | **`claude-pr-review-auto.yml`** | **PR Code Review（Claude，/review 触发，由 Claude 自行通过 gh 拉取 diff）** |
@@ -225,6 +226,19 @@ jobs:
 | secret | 必填 | 说明 |
 |--------|------|------|
 | `GH_TOKEN` | 是 | PAT 或 GitHub App token，需 `contents: write` |
+
+## 灰度分支自动同步
+
+复制 [examples/auto-sync-gray-caller.yml](examples/auto-sync-gray-caller.yml) 到业务仓
+`.github/workflows/auto-sync-gray.yml`，配置 `GH_TOKEN`，引用
+`iot-daci/template/.github/workflows/auto-sync-gray.yml@ghcr`。
+
+`main` 或 `gray-*` push 时，共享模板将 `main` 和所有 `gray-*` 分别合并到 `gray`、`dev`。
+无 `gray-*` 时两个目标都跳过；一个目标冲突不影响另一个目标。
+模板复用 `auto-sync-features.yml` 的合并与冲突处理，按目标分支加锁，避免与 feature → dev 同时推送。
+原 feature 工作流继续负责 `main` + `feature-*` → `dev`。
+
+接入前先将两个共享工作流发布到模板仓的 `ghcr` 分支。
 
 ## Claude PR Review
 
