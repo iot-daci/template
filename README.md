@@ -473,3 +473,11 @@ jobs:
 | `CLIENT_KEY` | 否 | mTLS 私钥 PEM |
 
 跑完后在 Actions 运行页打开 **Summary** 查看结果；详细 XML 在 Artifacts。
+
+### Java 25 应用
+
+`java-25.yml` 使用 Temurin 25，沿用现有 Docker 镜像构建、推送和 main 分支通知流程。
+支持 `workdir`、`docker_context`、`docker_image`、`generate_changelog` 和 `GH_TOKEN`。
+可选 `dependencies_workdir` 用于先安装独立 Maven 平台工程；平台 install 和应用 verify 均执行测试。
+运行镜像可通过 `JAVA_TOOL_OPTIONS` 配置 JVM 参数，通过 `SPRING_PROFILES_ACTIVE` 配置环境。
+调用方启用前，须先将新模板发布到 `ghcr` 分支。

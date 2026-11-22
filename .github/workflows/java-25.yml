@@ -1,0 +1,96 @@
+name: build java 25 exe
+
+on:
+  workflow_call:
+    inputs:
+      workdir:
+        type: string
+        required: false
+        default: "."
+      dependencies_workdir:
+        description: 可选的 Maven 平台工程目录，先 install 再构建应用
+        type: string
+        required: false
+        default: ""
+      docker_context:
+        type: string
+        required: false
+        default: "."
+      docker_image:
+        type: string
+        required: true
+      generate_changelog:
+        description: main 构建成功后是否在关联 PR 评论 Docker 镜像 tag（兼容旧名；不再写 changelog.md）
+        type: boolean
+        required: false
+        default: true
+    secrets:
+      GH_TOKEN:
+        description: GHCR 推送与 PR 镜像评论（需 write:packages；评论需 pull-requests）
+        required: true
+
+jobs:
+  build:
+    name: Build & push
+    permissions:
+      contents: read
+      packages: write
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v7
+
+      - name: Docker build prep
+        id: prep
+        uses: iot-daci/template/.github/actions/docker-build-prep@ghcr
+        with:
+          docker_image: ${{ inputs.docker_image }}
+          repository_owner: ${{ github.repository_owner }}
+          registry_token: ${{ secrets.GH_TOKEN }}
+
+      - name: Set up Java 25
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '25'
+          cache: maven
+
+      - name: Install platform dependencies
+        if: inputs.dependencies_workdir != ''
+        working-directory: ${{ inputs.dependencies_workdir }}
+        run: mvn -B -ntp install -DskipTests=false -Dmaven.test.skip=false
+
+      - name: Build package
+        working-directory: ${{ inputs.workdir }}
+        run: mvn -B -ntp verify -DskipTests=false -Dmaven.test.skip=false
+
+      - name: Build and push docker
+        uses: iot-daci/template/.github/actions/docker-build-push@ghcr
+        with:
+          context: ${{ inputs.docker_context }}
+          tags: ${{ steps.prep.outputs.tags }}
+          labels: ${{ steps.prep.outputs.labels }}
+
+      - name: Summary
+        if: always()
+        uses: iot-daci/template/.github/actions/build-job-summary@ghcr
+        with:
+          docker_tags: ${{ steps.prep.outputs.tags }}
+          build_version: ${{ steps.prep.outputs.version }}
+          job_status: ${{ job.status }}
+
+    outputs:
+      version: ${{ steps.prep.outputs.version }}
+      registry_image: ${{ steps.prep.outputs.registry_image }}
+
+  notify-image:
+    name: Notify image
+    needs: build
+    if: ${{ success() && github.ref_name == 'main' && inputs.generate_changelog }}
+    uses: ./.github/workflows/notify-image.yml
+    with:
+      service_name: ${{ inputs.docker_image }}
+      image_version: ${{ needs.build.outputs.version }}
+      registry_image: ${{ needs.build.outputs.registry_image }}
+    secrets:
+      GH_TOKEN: ${{ secrets.GH_TOKEN }}
