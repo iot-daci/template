@@ -489,18 +489,19 @@ jobs:
 `java-25.yml` 同样配置 Maven `github` server；消费方 POM 的仓库 ID 必须为 `github`。
 Suplax 后端 workflow 使用 `bootstrap_workdir` 先将独立 BOM 安装到本地，再通过 `workdir: yudao-server` 发布完整 Maven reactor（父 POM、BOM、framework、API 和服务模块）。发布成功后才构建镜像；mart-server 从 GitHub Packages 解析平台依赖。
 
-### 打包 workflow 的 runner 选择
+### Workflow runner 选择
 
-`artifact-zip.yml` 不再固定使用 Ubicloud，选择顺序为：
+原先使用 Ubicloud 的模板统一提供可选 `runner` 参数，默认仍为 `ubicloud-standard-2`，保持现有调用行为。
+`artifact-zip.yml` 同样默认使用 Ubicloud。Java 25 两个模板保留既有 `ubuntu-latest` 默认值，也支持 `runner` 参数。
+`auto-sync-gray.yml` 将该参数透传给同步模板。未涉及的轻量检查和通知任务继续使用原有 GitHub 托管 runner。
 
-1. 调用方传入的 `with.runner`。
-2. 调用仓库或组织的 Actions 变量 `ACTIONS_RUNNER_LABEL`。
-3. 未配置时使用 GitHub 托管的 `ubuntu-latest`。
+suplax-mart 调用方显式传入：
 
-已接入 Ubicloud 的仓库可设置 `ACTIONS_RUNNER_LABEL=ubicloud-standard-2`；
-未接入的仓库无需修改调用配置。组织变量应只向具备对应 runner 权限的仓库开放。
-也可在单次 workflow 调用中显式设置 `runner: ubuntu-latest` 覆盖组织配置。
+```yaml
+with:
+  runner: ubuntu-latest
+```
 
-这是配置回退，不是实时空闲检测：显式选择的 runner 离线、容量不足或不可访问时，
-GitHub 仍会排队，不会自动转移任务。不要将两个标签写成数组作为备选，数组表示必须同时匹配。
-修改模板后需发布到调用方引用的 `ghcr` 分支；已经排队的旧运行需要取消，并创建使用新模板的新运行。
+vcard、vpay、foundation-platform 无需修改即可保留原有 runner。
+不再使用 `ACTIONS_RUNNER_LABEL` 变量选择 runner。该参数不是在线检测或排队超时回退。
+需先将模板发布到 `ghcr` 分支，再发布调用方变更；已排队的旧任务需要取消并重新触发新运行。

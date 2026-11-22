@@ -3,6 +3,11 @@ name: build java 25 exe
 on:
   workflow_call:
     inputs:
+      runner:
+        type: string
+        required: false
+        default: "ubuntu-latest"
+        description: "Runner label for this workflow"
       workdir:
         type: string
         required: false
@@ -35,7 +40,7 @@ jobs:
     permissions:
       contents: read
       packages: write
-    runs-on: ubuntu-latest
+    runs-on: ${{ inputs.runner }}
     env:
       GITHUB_TOKEN: ${{ github.token }}
     steps:

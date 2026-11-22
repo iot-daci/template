@@ -6,8 +6,8 @@ on:
       runner:
         type: string
         required: false
-        default: ""
-        description: "Runner label; falls back to caller ACTIONS_RUNNER_LABEL variable, then ubuntu-latest"
+        default: "ubicloud-standard-2"
+        description: "Runner label for this workflow"
       source_dir:
         type: string
         required: false
@@ -27,7 +27,7 @@ on:
 
 jobs:
   package-and-upload:
-    runs-on: ${{ inputs.runner || vars.ACTIONS_RUNNER_LABEL || 'ubuntu-latest' }}
+    runs-on: ${{ inputs.runner }}
 
     steps:
       - name: Checkout repository

@@ -2,6 +2,12 @@ name: Auto Sync Gray to Gray and Dev
 
 on:
   workflow_call:
+    inputs:
+      runner:
+        type: string
+        required: false
+        default: "ubicloud-standard-2"
+        description: "Runner label forwarded to the sync workflow"
     secrets:
       GH_TOKEN:
         required: true
@@ -15,6 +21,7 @@ jobs:
         target_branch: [gray, dev]
     uses: ./.github/workflows/auto-sync-features.yml
     with:
+      runner: ${{ inputs.runner }}
       branch_pattern: gray-*
       include_main: true
       base_branch: main

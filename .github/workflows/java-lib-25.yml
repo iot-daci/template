@@ -3,6 +3,11 @@ name: Publish Java 25 library
 on:
   workflow_call:
     inputs:
+      runner:
+        type: string
+        required: false
+        default: "ubuntu-latest"
+        description: "Runner label for this workflow"
       workdir:
         type: string
         required: true
@@ -15,7 +20,7 @@ on:
 
 jobs:
   publish:
-    runs-on: ubuntu-latest
+    runs-on: ${{ inputs.runner }}
     permissions:
       contents: read
       packages: write
