@@ -488,3 +488,19 @@ jobs:
 调用任务需授予 `contents: read` 和 `packages: write`，使用内置 `GITHUB_TOKEN` 认证。
 `java-25.yml` 同样配置 Maven `github` server；消费方 POM 的仓库 ID 必须为 `github`。
 Suplax 后端 workflow 使用 `bootstrap_workdir` 先将独立 BOM 安装到本地，再通过 `workdir: yudao-server` 发布完整 Maven reactor（父 POM、BOM、framework、API 和服务模块）。发布成功后才构建镜像；mart-server 从 GitHub Packages 解析平台依赖。
+
+### 打包 workflow 的 runner 选择
+
+`artifact-zip.yml` 不再固定使用 Ubicloud，选择顺序为：
+
+1. 调用方传入的 `with.runner`。
+2. 调用仓库或组织的 Actions 变量 `ACTIONS_RUNNER_LABEL`。
+3. 未配置时使用 GitHub 托管的 `ubuntu-latest`。
+
+已接入 Ubicloud 的仓库可设置 `ACTIONS_RUNNER_LABEL=ubicloud-standard-2`；
+未接入的仓库无需修改调用配置。组织变量应只向具备对应 runner 权限的仓库开放。
+也可在单次 workflow 调用中显式设置 `runner: ubuntu-latest` 覆盖组织配置。
+
+这是配置回退，不是实时空闲检测：显式选择的 runner 离线、容量不足或不可访问时，
+GitHub 仍会排队，不会自动转移任务。不要将两个标签写成数组作为备选，数组表示必须同时匹配。
+修改模板后需发布到调用方引用的 `ghcr` 分支；已经排队的旧运行需要取消，并创建使用新模板的新运行。
