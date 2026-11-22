@@ -7,6 +7,12 @@ on:
         type: string
         required: true
 
+      bootstrap_workdir:
+        description: 可选的独立 BOM 目录，先安装到本地以解析聚合工程
+        type: string
+        required: false
+        default: ""
+
 jobs:
   publish:
     runs-on: ubuntu-latest
@@ -23,11 +29,18 @@ jobs:
           server-id: github
           server-username: GITHUB_ACTOR
           server-password: GITHUB_TOKEN
+      - name: Bootstrap BOM
+        if: inputs.bootstrap_workdir != ''
+        working-directory: ${{ inputs.bootstrap_workdir }}
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: mvn -B -ntp install -DskipTests=false -Dmaven.test.skip=false
+
       - name: Publish to GitHub Packages
         working-directory: ${{ inputs.workdir }}
         env:
           GITHUB_TOKEN: ${{ github.token }}
         run: >-
-          mvn -B -ntp verify org.apache.maven.plugins:maven-deploy-plugin:3.1.4:deploy
+          mvn -B -ntp install org.apache.maven.plugins:maven-deploy-plugin:3.1.4:deploy
           -DskipTests=false -Dmaven.test.skip=false
           -DaltDeploymentRepository=github::https://maven.pkg.github.com/${{ github.repository }}

@@ -487,4 +487,4 @@ jobs:
 `java-lib-25.yml` 接收 `workdir`，将该 Maven 工程发布至调用仓库的 GitHub Packages。
 调用任务需授予 `contents: read` 和 `packages: write`，使用内置 `GITHUB_TOKEN` 认证。
 `java-25.yml` 同样配置 Maven `github` server；消费方 POM 的仓库 ID 必须为 `github`。
-Suplax 后端 workflow 先发布独立 BOM，再构建镜像，避免首次构建依赖不存在。
+Suplax 后端 workflow 使用 `bootstrap_workdir` 先将独立 BOM 安装到本地，再通过 `workdir: yudao-server` 发布完整 Maven reactor（父 POM、BOM、framework、API 和服务模块）。发布成功后才构建镜像；mart-server 从 GitHub Packages 解析平台依赖。
