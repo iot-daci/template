@@ -481,3 +481,10 @@ jobs:
 可选 `dependencies_workdir` 用于先安装独立 Maven 平台工程；平台 install 和应用 verify 均执行测试。
 运行镜像可通过 `JAVA_TOOL_OPTIONS` 配置 JVM 参数，通过 `SPRING_PROFILES_ACTIVE` 配置环境。
 调用方启用前，须先将新模板发布到 `ghcr` 分支。
+
+### Java 25 Maven 发布
+
+`java-lib-25.yml` 接收 `workdir`，将该 Maven 工程发布至调用仓库的 GitHub Packages。
+调用任务需授予 `contents: read` 和 `packages: write`，使用内置 `GITHUB_TOKEN` 认证。
+`java-25.yml` 同样配置 Maven `github` server；消费方 POM 的仓库 ID 必须为 `github`。
+Suplax 后端 workflow 先发布独立 BOM，再构建镜像，避免首次构建依赖不存在。

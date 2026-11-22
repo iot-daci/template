@@ -1,0 +1,33 @@
+name: Publish Java 25 library
+
+on:
+  workflow_call:
+    inputs:
+      workdir:
+        type: string
+        required: true
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '25'
+          cache: maven
+          server-id: github
+          server-username: GITHUB_ACTOR
+          server-password: GITHUB_TOKEN
+      - name: Publish to GitHub Packages
+        working-directory: ${{ inputs.workdir }}
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: >-
+          mvn -B -ntp verify org.apache.maven.plugins:maven-deploy-plugin:3.1.4:deploy
+          -DskipTests=false -Dmaven.test.skip=false
+          -DaltDeploymentRepository=github::https://maven.pkg.github.com/${{ github.repository }}

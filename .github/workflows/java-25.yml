@@ -36,6 +36,8 @@ jobs:
       contents: read
       packages: write
     runs-on: ubuntu-latest
+    env:
+      GITHUB_TOKEN: ${{ github.token }}
     steps:
       - name: Checkout source
         uses: actions/checkout@v7
@@ -54,6 +56,9 @@ jobs:
           distribution: temurin
           java-version: '25'
           cache: maven
+          server-id: github
+          server-username: GITHUB_ACTOR
+          server-password: GITHUB_TOKEN
 
       - name: Install platform dependencies
         if: inputs.dependencies_workdir != ''
