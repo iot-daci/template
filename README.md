@@ -505,3 +505,10 @@ with:
 vcard、vpay、foundation-platform 无需修改即可保留原有 runner。
 不再使用 `ACTIONS_RUNNER_LABEL` 变量选择 runner。该参数不是在线检测或排队超时回退。
 需先将模板发布到 `ghcr` 分支，再发布调用方变更；已排队的旧任务需要取消并重新触发新运行。
+
+### Java 25 构建测试开关
+
+`java-25.yml` 与 `java-lib-25.yml` 支持布尔参数 `skip_tests`，默认 `false`。
+调用方设置 `skip_tests: true` 时，所有 Maven 安装、构建及发布步骤传入
+`-DskipTests=true -Dmaven.test.skip=true`，同时跳过测试源码编译和测试执行。
+此参数不会跳过 `src/main/java` 的编译，包括作为依赖发布的测试支持组件。

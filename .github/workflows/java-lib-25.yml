@@ -3,6 +3,11 @@ name: Publish Java 25 library
 on:
   workflow_call:
     inputs:
+      skip_tests:
+        description: 跳过测试源码编译和测试执行
+        type: boolean
+        required: false
+        default: false
       runner:
         type: string
         required: false
@@ -39,7 +44,7 @@ jobs:
         working-directory: ${{ inputs.bootstrap_workdir }}
         env:
           GITHUB_TOKEN: ${{ github.token }}
-        run: mvn -B -ntp install -DskipTests=false -Dmaven.test.skip=false
+        run: mvn -B -ntp install -DskipTests=${{ inputs.skip_tests }} -Dmaven.test.skip=${{ inputs.skip_tests }}
 
       - name: Publish to GitHub Packages
         working-directory: ${{ inputs.workdir }}
@@ -47,5 +52,5 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
         run: >-
           mvn -B -ntp install org.apache.maven.plugins:maven-deploy-plugin:3.1.4:deploy
-          -DskipTests=false -Dmaven.test.skip=false
+          -DskipTests=${{ inputs.skip_tests }} -Dmaven.test.skip=${{ inputs.skip_tests }}
           -DaltDeploymentRepository=github::https://maven.pkg.github.com/${{ github.repository }}

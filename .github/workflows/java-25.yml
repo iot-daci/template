@@ -3,6 +3,11 @@ name: build java 25 exe
 on:
   workflow_call:
     inputs:
+      skip_tests:
+        description: 跳过测试源码编译和测试执行
+        type: boolean
+        required: false
+        default: false
       runner:
         type: string
         required: false
@@ -68,11 +73,11 @@ jobs:
       - name: Install platform dependencies
         if: inputs.dependencies_workdir != ''
         working-directory: ${{ inputs.dependencies_workdir }}
-        run: mvn -B -ntp install -DskipTests=false -Dmaven.test.skip=false
+        run: mvn -B -ntp install -DskipTests=${{ inputs.skip_tests }} -Dmaven.test.skip=${{ inputs.skip_tests }}
 
       - name: Build package
         working-directory: ${{ inputs.workdir }}
-        run: mvn -B -ntp verify -DskipTests=false -Dmaven.test.skip=false
+        run: mvn -B -ntp verify -DskipTests=${{ inputs.skip_tests }} -Dmaven.test.skip=${{ inputs.skip_tests }}
 
       - name: Build and push docker
         uses: iot-daci/template/.github/actions/docker-build-push@ghcr
