@@ -7,7 +7,7 @@ on:
         description: 跳过测试源码编译和测试执行
         type: boolean
         required: false
-        default: false
+        default: true
       runner:
         type: string
         required: false

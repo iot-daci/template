@@ -508,7 +508,7 @@ vcard、vpay、foundation-platform 无需修改即可保留原有 runner。
 
 ### Java 25 构建测试开关
 
-`java-25.yml` 与 `java-lib-25.yml` 支持布尔参数 `skip_tests`，默认 `false`。
+`java-25.yml` 与 `java-lib-25.yml` 支持布尔参数 `skip_tests`，默认 `true`；需要运行测试时显式传入 `false`。
 调用方设置 `skip_tests: true` 时，所有 Maven 安装、构建及发布步骤传入
 `-DskipTests=true -Dmaven.test.skip=true`，同时跳过测试源码编译和测试执行。
 此参数不会跳过 `src/main/java` 的编译，包括作为依赖发布的测试支持组件。
